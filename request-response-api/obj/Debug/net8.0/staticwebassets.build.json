@@ -1,0 +1,11 @@
+{
+  "Version": 1,
+  "Hash": "2iapoHyeUc2EDaCfzPuQE5ERjl0eNqdbMXjrFJhLQ+E=",
+  "Source": "request-response-api",
+  "BasePath": "_content/request-response-api",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}

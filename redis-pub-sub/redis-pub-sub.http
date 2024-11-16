@@ -1,0 +1,6 @@
+@redis_pub_sub_HostAddress = http://localhost:5195
+
+GET {{redis_pub_sub_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

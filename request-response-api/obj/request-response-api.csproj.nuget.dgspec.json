@@ -1,20 +1,21 @@
 {
   "format": 1,
   "restore": {
-    "/Users/berkayyerdelen/RiderProjects/daily-learning/request-response-api/request-response-api.csproj": {}
+    "C:\\Users\\berka\\RiderProjects\\daily-learnings\\request-response-api\\request-response-api.csproj": {}
   },
   "projects": {
-    "/Users/berkayyerdelen/RiderProjects/daily-learning/request-response-api/request-response-api.csproj": {
+    "C:\\Users\\berka\\RiderProjects\\daily-learnings\\request-response-api\\request-response-api.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/Users/berkayyerdelen/RiderProjects/daily-learning/request-response-api/request-response-api.csproj",
+        "projectUniqueName": "C:\\Users\\berka\\RiderProjects\\daily-learnings\\request-response-api\\request-response-api.csproj",
         "projectName": "request-response-api",
-        "projectPath": "/Users/berkayyerdelen/RiderProjects/daily-learning/request-response-api/request-response-api.csproj",
-        "packagesPath": "/Users/berkayyerdelen/.nuget/packages/",
-        "outputPath": "/Users/berkayyerdelen/RiderProjects/daily-learning/request-response-api/obj/",
+        "projectPath": "C:\\Users\\berka\\RiderProjects\\daily-learnings\\request-response-api\\request-response-api.csproj",
+        "packagesPath": "C:\\Users\\berka\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\berka\\RiderProjects\\daily-learnings\\request-response-api\\obj\\",
         "projectStyle": "PackageReference",
+        "UsingMicrosoftNETSdk": false,
         "configFilePaths": [
-          "/Users/berkayyerdelen/.nuget/NuGet/NuGet.Config"
+          "C:\\Users\\berka\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net8.0"
@@ -75,7 +76,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/8.0.303/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Users\\berka\\.dotnet\\sdk\\8.0.404/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

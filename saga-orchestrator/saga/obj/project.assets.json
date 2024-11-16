@@ -2059,19 +2059,20 @@
     ]
   },
   "packageFolders": {
-    "/Users/berkayyerdelen/.nuget/packages/": {}
+    "C:\\Users\\berka\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/Users/berkayyerdelen/RiderProjects/daily-learning/saga/saga.csproj",
+      "projectUniqueName": "C:\\Users\\berka\\RiderProjects\\daily-learnings\\saga-orchestrator\\saga\\saga.csproj",
       "projectName": "saga",
-      "projectPath": "/Users/berkayyerdelen/RiderProjects/daily-learning/saga/saga.csproj",
-      "packagesPath": "/Users/berkayyerdelen/.nuget/packages/",
-      "outputPath": "/Users/berkayyerdelen/RiderProjects/daily-learning/saga/obj/",
+      "projectPath": "C:\\Users\\berka\\RiderProjects\\daily-learnings\\saga-orchestrator\\saga\\saga.csproj",
+      "packagesPath": "C:\\Users\\berka\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\berka\\RiderProjects\\daily-learnings\\saga-orchestrator\\saga\\obj\\",
       "projectStyle": "PackageReference",
+      "UsingMicrosoftNETSdk": false,
       "configFilePaths": [
-        "/Users/berkayyerdelen/.nuget/NuGet/NuGet.Config"
+        "C:\\Users\\berka\\AppData\\Roaming\\NuGet\\NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net8.0"
@@ -2144,7 +2145,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/8.0.303/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Users\\berka\\.dotnet\\sdk\\8.0.404/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

@@ -12,6 +12,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "redis-message-broker", "red
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "redis-pub-sub", "redis-pub-sub\redis-pub-sub.csproj", "{C6C51AD2-3AD4-43C3-97CF-CF8A5A325B81}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "event-sourcing", "event-sourcing", "{D9503B4A-63BE-4A5A-A0CB-511613C6EC4F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "event-sourcing", "event-sourcing\event-sourcing.csproj", "{DC489637-0B7F-4CDD-8C1C-072B8028B136}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +25,7 @@ Global
 		{82C21DDE-9B13-4906-B228-B9E7BB662921} = {412DFF76-1D36-45D0-BC2B-3A637D987EBE}
 		{9C00A3EB-D63E-4DE3-94CF-32AD0DF25BB0} = {E115C7F6-769C-4D4D-AA5E-B54D8EAAC10A}
 		{C6C51AD2-3AD4-43C3-97CF-CF8A5A325B81} = {ACAB9971-3721-473D-BE26-65EC42C68E5B}
+		{DC489637-0B7F-4CDD-8C1C-072B8028B136} = {D9503B4A-63BE-4A5A-A0CB-511613C6EC4F}
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{82C21DDE-9B13-4906-B228-B9E7BB662921}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -35,5 +40,9 @@ Global
 		{C6C51AD2-3AD4-43C3-97CF-CF8A5A325B81}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C6C51AD2-3AD4-43C3-97CF-CF8A5A325B81}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C6C51AD2-3AD4-43C3-97CF-CF8A5A325B81}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DC489637-0B7F-4CDD-8C1C-072B8028B136}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DC489637-0B7F-4CDD-8C1C-072B8028B136}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DC489637-0B7F-4CDD-8C1C-072B8028B136}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DC489637-0B7F-4CDD-8C1C-072B8028B136}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

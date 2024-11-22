@@ -1,0 +1,6 @@
+@event_sourcing_HostAddress = http://localhost:5269
+
+GET {{event_sourcing_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

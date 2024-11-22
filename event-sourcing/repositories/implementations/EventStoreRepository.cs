@@ -5,12 +5,12 @@ using MongoDB.Driver;
 
 namespace event_sourcing.repositories.implementations;
 
-public class MongoEventStoreRepository : IMongoEventStoreRepository
+public class EventStoreRepository : IEventStoreRepository
 {
     private readonly IMongoCollection<StoredEvent> _mongoCollection;
 
 
-    public MongoEventStoreRepository()
+    public EventStoreRepository()
     {
         //for now pass it as hard-coded
         var mongoClient = new MongoClient("mongodb://localhost:27017");

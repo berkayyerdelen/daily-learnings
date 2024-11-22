@@ -11,7 +11,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddControllers();
 BsonSerializer.RegisterSerializer(new MongoDB.Bson.Serialization.Serializers.GuidSerializer(GuidRepresentation.Standard));
-builder.Services.AddScoped<IMongoEventStoreRepository, MongoEventStoreRepository>();
+builder.Services.AddScoped<IEventStoreRepository, EventStoreRepository>();
 builder.Services.AddScoped<ISnapshotStoreRepository, SnapshotStoreRepository>();
 
 var app = builder.Build();

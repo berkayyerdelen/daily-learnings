@@ -10,13 +10,13 @@ namespace event_sourcing.controllers;
 [Route("[controller]")]
 public class AccountsController : ControllerBase
 {
-    private readonly IMongoEventStoreRepository _mongoEventStoreRepository;
+    private readonly IEventStoreRepository _eventStoreRepository;
     private readonly ISnapshotStoreRepository _snapshotStoreRepository;
 
-    public AccountsController(IMongoEventStoreRepository mongoEventStoreRepository,
+    public AccountsController(IEventStoreRepository eventStoreRepository,
         ISnapshotStoreRepository snapshotStoreRepository)
     {
-        _mongoEventStoreRepository = mongoEventStoreRepository;
+        _eventStoreRepository = eventStoreRepository;
         _snapshotStoreRepository = snapshotStoreRepository;
     }
 
@@ -26,7 +26,7 @@ public class AccountsController : ControllerBase
         var accountId = Guid.NewGuid();
         var accountCreatedEvent = new AccountCreatedDomainEvent(accountId, initialBalance);
 
-        await _mongoEventStoreRepository.SaveEvents(accountId, [accountCreatedEvent]);
+        await _eventStoreRepository.SaveEvents(accountId, [accountCreatedEvent]);
 
         return Ok(new { AccountId = accountId });
     }
@@ -34,12 +34,12 @@ public class AccountsController : ControllerBase
     [HttpPost("deposit")]
     public async Task<ActionResult> Deposit([FromBody] DepositRequest depositRequest)
     {
-        var events = await _mongoEventStoreRepository.GetEventsForAggregate(depositRequest.AccountId);
+        var events = await _eventStoreRepository.GetEventsForAggregate(depositRequest.AccountId);
         var account = BankAccount.Rehydrate(depositRequest.AccountId,events);
 
         account.Deposit(depositRequest.Amount);
 
-        await _mongoEventStoreRepository.SaveEvents(depositRequest.AccountId, account.GetUncommittedDomainEvents());
+        await _eventStoreRepository.SaveEvents(depositRequest.AccountId, account.GetUncommittedDomainEvents());
         await _snapshotStoreRepository.SaveSnapshot(depositRequest.AccountId, account.Balance);
 
         return Ok(new { Balance = account.Balance });
@@ -48,12 +48,12 @@ public class AccountsController : ControllerBase
     [HttpPost("withdraw")]
     public async Task<ActionResult> Withdraw([FromBody] WithdrawRequest withdrawRequest)
     {
-        var events = await _mongoEventStoreRepository.GetEventsForAggregate(withdrawRequest.AccountId);
+        var events = await _eventStoreRepository.GetEventsForAggregate(withdrawRequest.AccountId);
 
         var account = BankAccount.Rehydrate(withdrawRequest.AccountId,events);
         account.Withdraw(withdrawRequest.Amount);
 
-        await _mongoEventStoreRepository.SaveEvents(withdrawRequest.AccountId, account.GetUncommittedDomainEvents());
+        await _eventStoreRepository.SaveEvents(withdrawRequest.AccountId, account.GetUncommittedDomainEvents());
         await _snapshotStoreRepository.SaveSnapshot(withdrawRequest.AccountId, account.Balance);
 
         return Ok(new { Balance = account.Balance });
@@ -62,7 +62,7 @@ public class AccountsController : ControllerBase
     [HttpGet("{accountId}")]
     public async Task<ActionResult> GetAccount(Guid accountId)
     {
-        var events = await _mongoEventStoreRepository.GetEventsForAggregate(accountId);
+        var events = await _eventStoreRepository.GetEventsForAggregate(accountId);
         var account = BankAccount.Rehydrate(accountId, events);
         
         return Ok(new { Balance = account.Balance });

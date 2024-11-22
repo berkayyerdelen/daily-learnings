@@ -8,7 +8,6 @@ public class BankAccount
 {
     private List<DomainEvent> _domainEvents = new List<DomainEvent>();
     private decimal _balance;
-
     public BankAccount(Guid id)
     {
         Id = id;
@@ -19,7 +18,7 @@ public class BankAccount
 
     public decimal Balance => _balance;
 
-    public void Apply(DomainEvent @event)
+    private void Apply(DomainEvent @event)
     {
         switch (@event)
         {
@@ -41,6 +40,8 @@ public class BankAccount
                 break;
         }
     }
+
+    public long VersionId => VersionId;
 
     public IEnumerable<DomainEvent> GetUncommittedDomainEvents()
     {
@@ -66,9 +67,9 @@ public class BankAccount
         _domainEvents.Add(withDrawEvent);
     }
 
-    public static BankAccount Rehydrate(IEnumerable<DomainEvent> events)
+    public static BankAccount Rehydrate(Guid accountId,IEnumerable<DomainEvent> events)
     {
-        var account = new BankAccount(Guid.NewGuid());
+        var account = new BankAccount(accountId);
 
         foreach (var @event in events)
         {

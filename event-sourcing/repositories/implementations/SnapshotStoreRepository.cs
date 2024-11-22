@@ -4,11 +4,11 @@ using MongoDB.Driver;
 
 namespace event_sourcing.repositories.implementations;
 
-public class SnapshotStoreRepositoryRepository : ISnapshotStoreRepository
+public class SnapshotStoreRepository : ISnapshotStoreRepository
 {
     private readonly IMongoCollection<AccountSnapShot> _mongoCollection;
 
-    public SnapshotStoreRepositoryRepository()
+    public SnapshotStoreRepository()
     {
         var client = new MongoClient("mongodb://localhost:27017");
         var database = client.GetDatabase("snapshots");

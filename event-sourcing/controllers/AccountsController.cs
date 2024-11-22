@@ -35,7 +35,7 @@ public class AccountsController : ControllerBase
     public async Task<ActionResult> Deposit([FromBody] DepositRequest depositRequest)
     {
         var events = await _mongoEventStoreRepository.GetEventsForAggregate(depositRequest.AccountId);
-        var account = BankAccount.Rehydrate(events);
+        var account = BankAccount.Rehydrate(depositRequest.AccountId,events);
 
         account.Deposit(depositRequest.Amount);
 
@@ -50,7 +50,7 @@ public class AccountsController : ControllerBase
     {
         var events = await _mongoEventStoreRepository.GetEventsForAggregate(withdrawRequest.AccountId);
 
-        var account = BankAccount.Rehydrate(events);
+        var account = BankAccount.Rehydrate(withdrawRequest.AccountId,events);
         account.Withdraw(withdrawRequest.Amount);
 
         await _mongoEventStoreRepository.SaveEvents(withdrawRequest.AccountId, account.GetUncommittedDomainEvents());
@@ -63,7 +63,7 @@ public class AccountsController : ControllerBase
     public async Task<ActionResult> GetAccount(Guid accountId)
     {
         var events = await _mongoEventStoreRepository.GetEventsForAggregate(accountId);
-        var account = BankAccount.Rehydrate(events);
+        var account = BankAccount.Rehydrate(accountId, events);
         
         return Ok(new { Balance = account.Balance });
     }

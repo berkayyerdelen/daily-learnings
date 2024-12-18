@@ -22,6 +22,17 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "sample-api", "sample-api\sa
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "toxiproxy-client", "toxiproxy-client\toxiproxy-client.csproj", "{C20DD9AE-A5A3-4E2B-8C26-86A5FB4E1CF7}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "angular", "angular", "{66E82423-5DD4-4B8F-B444-18A19DBDFF2B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "dockerize-web-api", "dockerize-web-api", "{A5B1A7D4-EFDB-4A3D-8E4B-8F53FD7A5BA2}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "dockerize-web-api", "dockerize-web-api\dockerize-web-api\dockerize-web-api.csproj", "{8DC096F9-6206-4A62-B769-A22C21541EF7}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{77787A48-2A05-49E9-83C9-0FCE4C8C68EB}"
+	ProjectSection(SolutionItems) = preProject
+		compose.yaml = compose.yaml
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -34,6 +45,7 @@ Global
 		{DC489637-0B7F-4CDD-8C1C-072B8028B136} = {D9503B4A-63BE-4A5A-A0CB-511613C6EC4F}
 		{B216BFCF-8022-41EA-81C5-0BB33585264D} = {7A85A8A8-31C0-488B-A432-8FF41B376A8D}
 		{C20DD9AE-A5A3-4E2B-8C26-86A5FB4E1CF7} = {7A85A8A8-31C0-488B-A432-8FF41B376A8D}
+		{8DC096F9-6206-4A62-B769-A22C21541EF7} = {A5B1A7D4-EFDB-4A3D-8E4B-8F53FD7A5BA2}
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{82C21DDE-9B13-4906-B228-B9E7BB662921}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -60,5 +72,9 @@ Global
 		{C20DD9AE-A5A3-4E2B-8C26-86A5FB4E1CF7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C20DD9AE-A5A3-4E2B-8C26-86A5FB4E1CF7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C20DD9AE-A5A3-4E2B-8C26-86A5FB4E1CF7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8DC096F9-6206-4A62-B769-A22C21541EF7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8DC096F9-6206-4A62-B769-A22C21541EF7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8DC096F9-6206-4A62-B769-A22C21541EF7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8DC096F9-6206-4A62-B769-A22C21541EF7}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

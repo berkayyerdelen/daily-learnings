@@ -1,0 +1,33 @@
+﻿version: '3.8'
+
+services:
+  dockerize-web-api:
+    image: dockerize-web-api
+    build:
+      context: .
+      dockerfile: dockerize-web-api/dockerize-web-api/Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - REDIS_CONNECTION=redis:6379  # Redis connection string for your app to connect
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    depends_on:
+      - rabbitmq
+      - redis
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "15672:15672" # RabbitMQ Management UI
+      - "5672:5672"   # RabbitMQ default port
+
+  redis:
+    image: redis:alpine
+    container_name: redis-def
+    ports:
+      - "6379:6379"  # Exposing Redis port for external access if needed

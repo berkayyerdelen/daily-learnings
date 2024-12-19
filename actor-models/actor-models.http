@@ -1,0 +1,6 @@
+@actor_models_HostAddress = http://localhost:5101
+
+GET {{actor_models_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -31,3 +31,9 @@ services:
     container_name: redis-def
     ports:
       - "6379:6379"  # Exposing Redis port for external access if needed
+
+  actor-models:
+    image: actor-models
+    build:
+      context: .
+      dockerfile: actor-models/Dockerfile

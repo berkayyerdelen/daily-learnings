@@ -33,6 +33,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		compose.yaml = compose.yaml
 	EndProjectSection
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "actor-model", "actor-model", "{B6905389-DD6C-4864-B54C-4A6F04667CE4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "actor-models", "actor-models\actor-models.csproj", "{B5F4B3D4-2275-4BEF-884E-76104AD26C78}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -46,6 +50,7 @@ Global
 		{B216BFCF-8022-41EA-81C5-0BB33585264D} = {7A85A8A8-31C0-488B-A432-8FF41B376A8D}
 		{C20DD9AE-A5A3-4E2B-8C26-86A5FB4E1CF7} = {7A85A8A8-31C0-488B-A432-8FF41B376A8D}
 		{8DC096F9-6206-4A62-B769-A22C21541EF7} = {A5B1A7D4-EFDB-4A3D-8E4B-8F53FD7A5BA2}
+		{B5F4B3D4-2275-4BEF-884E-76104AD26C78} = {B6905389-DD6C-4864-B54C-4A6F04667CE4}
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{82C21DDE-9B13-4906-B228-B9E7BB662921}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -76,5 +81,9 @@ Global
 		{8DC096F9-6206-4A62-B769-A22C21541EF7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8DC096F9-6206-4A62-B769-A22C21541EF7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8DC096F9-6206-4A62-B769-A22C21541EF7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B5F4B3D4-2275-4BEF-884E-76104AD26C78}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B5F4B3D4-2275-4BEF-884E-76104AD26C78}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B5F4B3D4-2275-4BEF-884E-76104AD26C78}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B5F4B3D4-2275-4BEF-884E-76104AD26C78}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

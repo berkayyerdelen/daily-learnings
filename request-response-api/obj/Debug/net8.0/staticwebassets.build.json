@@ -1,1 +1,11 @@
-{"Version":1,"Hash":"DIHgMx/Pi2lPCUTqN6VeY0LHgt8uICz6VH4eBzewckc=","Source":"request-response-api","BasePath":"/","Mode":"Root","ManifestType":"Build","ReferencedProjectsConfiguration":[],"DiscoveryPatterns":[],"Assets":[],"Endpoints":[]}
+{
+  "Version": 1,
+  "Hash": "2iapoHyeUc2EDaCfzPuQE5ERjl0eNqdbMXjrFJhLQ+E=",
+  "Source": "request-response-api",
+  "BasePath": "_content/request-response-api",
+  "Mode": "Default",
+  "ManifestType": "Build",
+  "ReferencedProjectsConfiguration": [],
+  "DiscoveryPatterns": [],
+  "Assets": []
+}

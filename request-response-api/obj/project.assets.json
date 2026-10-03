@@ -1255,20 +1255,19 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\berka\\.nuget\\packages\\": {}
+    "/Users/berkayyerdelen/.nuget/packages/": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\berka\\RiderProjects\\daily-learnings\\request-response-api\\request-response-api.csproj",
+      "projectUniqueName": "/Users/berkayyerdelen/RiderProjects/daily-learnings/request-response-api/request-response-api.csproj",
       "projectName": "request-response-api",
-      "projectPath": "C:\\Users\\berka\\RiderProjects\\daily-learnings\\request-response-api\\request-response-api.csproj",
-      "packagesPath": "C:\\Users\\berka\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\berka\\RiderProjects\\daily-learnings\\request-response-api\\obj\\",
+      "projectPath": "/Users/berkayyerdelen/RiderProjects/daily-learnings/request-response-api/request-response-api.csproj",
+      "packagesPath": "/Users/berkayyerdelen/.nuget/packages/",
+      "outputPath": "/Users/berkayyerdelen/RiderProjects/daily-learnings/request-response-api/obj/",
       "projectStyle": "PackageReference",
-      "UsingMicrosoftNETSdk": false,
       "configFilePaths": [
-        "C:\\Users\\berka\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        "/Users/berkayyerdelen/.nuget/NuGet/NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net8.0"
@@ -1290,8 +1289,9 @@
       "restoreAuditProperties": {
         "enableAudit": "true",
         "auditLevel": "low",
-        "auditMode": "all"
-      }
+        "auditMode": "direct"
+      },
+      "SdkAnalysisLevel": "10.0.400"
     },
     "frameworks": {
       "net8.0": {
@@ -1329,7 +1329,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Users\\berka\\.dotnet\\sdk\\9.0.100/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/10.0.401/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

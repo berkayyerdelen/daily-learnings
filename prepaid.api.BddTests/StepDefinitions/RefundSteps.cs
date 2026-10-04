@@ -10,25 +10,27 @@ namespace prepaid.api.BddTests.StepDefinitions;
 [Binding]
 public class RefundSteps
 {
+    private readonly CustomWebApplicationFactory _factory;
+    private readonly HttpClient _httpClient;
     private readonly ScenarioContext _scenarioContext;
 
-    public RefundSteps(ScenarioContext scenarioContext)
+    public RefundSteps(CustomWebApplicationFactory factory, HttpClient httpClient, ScenarioContext scenarioContext)
     {
+        _factory = factory;
+        _httpClient = httpClient;
         _scenarioContext = scenarioContext;
     }
 
     [Given(@"a payment exists with transaction id ""(.*)"" and amount (\d+)")]
     public void GivenAPaymentExistsWithTransactionIdAndAmount(string transactionId, decimal amount)
     {
-        var factory = _scenarioContext.Get<CustomWebApplicationFactory>();
-        PaymentApiScenarios.Found(factory.DownstreamServers.Server, transactionId, amount);
+        PaymentApiScenarios.Found(_factory.DownstreamServers.Server, transactionId, amount);
     }
 
     [When(@"I refund (\d+) for transaction ""(.*)""")]
     public async Task WhenIRefundForTransaction(decimal amount, string transactionId)
     {
-        var client = _scenarioContext.Get<HttpClient>();
-        var response = await PostRefundAsync(client, transactionId, amount);
+        var response = await PostRefundAsync(_httpClient, transactionId, amount);
         _scenarioContext.Set(response);
     }
 

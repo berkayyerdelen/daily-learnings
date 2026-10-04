@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using prepaid.api.Clients.CustomerDirectory;
 using prepaid.api.Clients.Payments;
 using prepaid.api.Features.Bookings;
@@ -14,15 +15,25 @@ builder.Services.AddOpenApi();
 builder.Services.AddSingleton<IBookingService, BookingService>();
 builder.Services.AddSingleton<IRefundLedger, InMemoryRefundLedger>();
 builder.Services.AddScoped<IRefundService, RefundService>();
+
+builder.Services.AddOptions<PaymentApiOptions>()
+    .Bind(builder.Configuration.GetSection("PaymentApi"))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 builder.Services.AddHttpClient<IPaymentApiClient, PaymentApiClient>((sp, client) =>
 {
-    var baseUrl = sp.GetRequiredService<IConfiguration>()["PaymentApi:BaseUrl"];
-    client.BaseAddress = new Uri(baseUrl!);
+    var options = sp.GetRequiredService<IOptions<PaymentApiOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl);
 }).AddStandardResilienceHandler();
+
+builder.Services.AddOptions<CustomerDirectoryOptions>()
+    .Bind(builder.Configuration.GetSection("CustomerDirectory"))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 builder.Services.AddHttpClient<ICustomerDirectoryClient, CustomerDirectoryClient>((sp, client) =>
 {
-    var baseUrl = sp.GetRequiredService<IConfiguration>()["CustomerDirectory:BaseUrl"];
-    client.BaseAddress = new Uri(baseUrl!);
+    var options = sp.GetRequiredService<IOptions<CustomerDirectoryOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl);
 }).AddStandardResilienceHandler();
 
 var app = builder.Build();

@@ -9,7 +9,12 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 {
     public const string TestApiKey = "test-api-key";
 
-    public DownstreamServers DownstreamServers { get; } = new();
+    public DownstreamServers DownstreamServers { get; }
+
+    public CustomWebApplicationFactory(DownstreamServers downstreamServers)
+    {
+        DownstreamServers = downstreamServers;
+    }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -22,11 +27,5 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
                 ["Refunds:ApiKey"] = TestApiKey
             });
         });
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        DownstreamServers.Dispose();
-        base.Dispose(disposing);
     }
 }

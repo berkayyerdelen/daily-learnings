@@ -8,18 +8,19 @@ namespace prepaid.api.BddTests.StepDefinitions;
 [Binding]
 public class BookingSteps
 {
+    private readonly HttpClient _httpClient;
     private readonly ScenarioContext _scenarioContext;
 
-    public BookingSteps(ScenarioContext scenarioContext)
+    public BookingSteps(HttpClient httpClient, ScenarioContext scenarioContext)
     {
+        _httpClient = httpClient;
         _scenarioContext = scenarioContext;
     }
 
     [When(@"I insert a booking with id ""(.*)"", customer ""(.*)"" and amount (\d+)")]
     public async Task WhenIInsertABookingWithIdCustomerAndAmount(string id, string customerName, decimal amount)
     {
-        var client = _scenarioContext.Get<HttpClient>();
-        var response = await client.PostAsJsonAsync("/Bookings", new Booking
+        var response = await _httpClient.PostAsJsonAsync("/Bookings", new Booking
         {
             BookingId = id,
             CustomerName = customerName,
@@ -31,8 +32,7 @@ public class BookingSteps
     [When(@"I request booking ""(.*)""")]
     public async Task WhenIRequestBooking(string id)
     {
-        var client = _scenarioContext.Get<HttpClient>();
-        var response = await client.GetAsync($"/Bookings/{id}");
+        var response = await _httpClient.GetAsync($"/Bookings/{id}");
         _scenarioContext.Set(response);
     }
 

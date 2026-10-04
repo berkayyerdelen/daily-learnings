@@ -10,13 +10,16 @@ prepaid.api.BddTests/
   StepDefinitions/      Given/When/Then bindings
   MockScenarios/        WireMock stub builders (Found/NotFound/Unavailable per downstream)
   Infrastructure/
-    DownstreamServers.cs   one WireMockServer per real downstream dependency
+    DownstreamServers.cs   one shared WireMockServer, started once for the whole test run
   Support/
     CustomWebApplicationFactory.cs   boots the app in-memory; this is the test's "appsettings"
     ScenarioState.cs
   Hooks/
-    TestHooks.cs         creates a fresh factory + HttpClient per scenario
+    TestHooks.cs         starts/stops the shared WireMock server for the run; fresh app host per scenario
+  xunit.runner.json      forces serial execution — required because the WireMock server is shared mutable state
 ```
+
+The WireMock server is started once in `[BeforeTestRun]` and stopped in `[AfterTestRun]` (`TestHooks.cs`) — not per scenario. Each `[BeforeScenario]` calls `Server.Reset()` (clears mappings + request log) and builds a fresh `CustomWebApplicationFactory`/app host, so every scenario still starts from a clean slate without paying WireMock's startup cost each time. This only works because `xunit.runner.json` disables collection parallelization — Reqnroll puts each `.feature` file in its own test class, and xUnit runs different classes in parallel by default; with one shared server, a scenario in another class calling `Reset()` mid-run would wipe out stubs this scenario just set up. Don't remove `xunit.runner.json` without re-introducing per-scenario WireMock instances.
 
 ## If you add a new endpoint
 
@@ -47,6 +50,8 @@ public class DownstreamServers : IDisposable
     }
 }
 ```
+
+`TestHooks` owns one instance of this for the entire run (`[BeforeTestRun]`/`[AfterTestRun]`) and passes it into each scenario's `CustomWebApplicationFactory`; it does not construct a new one per scenario.
 
 Only reach for a second server if a new dependency's paths could plausibly collide with an existing one, or you specifically want its request log isolated for debugging — neither applies to `Payments`/`CustomerDirectory` here.
 
@@ -95,14 +100,16 @@ Inject `CustomWebApplicationFactory` (and `ScenarioContext` if you need the last
 [BeforeScenario]
 public void CreateFactory()
 {
-    var factory = new CustomWebApplicationFactory();
-    _objectContainer.RegisterInstanceAs(factory);   // <- without this, constructor-injected factories are each a separate instance
-    _scenarioContext.Set(factory);
-    _scenarioContext.Set(factory.CreateClient());
+    var downstreamServers = _downstreamServers ?? throw new InvalidOperationException(...);
+    downstreamServers.Server.Reset();   // clean slate, but keep the server itself running
+
+    var factory = new CustomWebApplicationFactory(downstreamServers);
+    _objectContainer.RegisterInstanceAs(factory);                 // <- without this, constructor-injected factories are each a separate instance
+    _objectContainer.RegisterInstanceAs(factory.CreateClient());
 }
 ```
 
-This is already in place — just don't remove it, and don't assume a second step-definition class constructor-injecting `CustomWebApplicationFactory` is somehow unsafe; it isn't, as long as this registration stays.
+This is already in place — just don't remove it. Every step class should get `CustomWebApplicationFactory` and `HttpClient` the *same* way: as plain constructor parameters (see `RefundSteps`/`CustomerDirectorySteps`/`BookingSteps`). There's no second, parallel way to reach them (no `ScenarioContext.Get<CustomWebApplicationFactory>()` or `ScenarioContext.Get<HttpClient>()` anywhere) — one resolution path, so it's not possible to accidentally end up on a different instance. Keep `ScenarioContext` only for values that genuinely change step-to-step within a scenario (the last `HttpResponseMessage`, a cached deserialized body) — not for the factory or client.
 
 **5. Add the `.feature` scenario(s)** exercising the new dependency's success and failure paths (see `BookingEnrichment.feature`: one scenario where the directory returns a profile, one where it's unavailable and the response degrades gracefully instead of failing).
 
@@ -123,10 +130,27 @@ Example: a fraud check gets inserted into `RefundService.RefundAsync`, between t
    ```
 3. **New config only if the step calls a new downstream dependency** — then it's the exact same checklist as "If you add a new downstream service" above (`DownstreamServers.cs`, `CustomWebApplicationFactory.cs` config entry, mock scenarios, step defs). If the step is pure in-process logic, no config changes are needed — just the new step definitions and scenario(s).
 
+## Verifying how many times a downstream call happened
+
+Every request WireMock receives lands in its request log — useful for asserting a downstream dependency was (or wasn't) called, e.g. checking a retry happened, or that enrichment only calls the directory once per booking. `Infrastructure/WireMockServerExtensions.cs` wraps the raw log query:
+
+```csharp
+public static int CallsTo(this WireMockServer server, string pathPrefix) =>
+    server.LogEntries.Count(l => l.RequestMessage.Path.StartsWith(pathPrefix));
+```
+
+Use it in a step definition:
+
+```csharp
+_factory.DownstreamServers.Server.CallsTo("/customers/").Should().Be(1);
+```
+
+Only *received* requests show up here — stubs configured in a `Given` step don't count until something actually calls them. Since the server is shared and reset per scenario (see above), counts reflect only the current scenario's calls.
+
 ## Running the suite
 
 ```
 dotnet test prepaid.api.BddTests/prepaid.api.BddTests.csproj
 ```
 
-No real network calls and no real downstream service needs to be up — every dependency is a local WireMock instance started per scenario.
+No real network calls and no real downstream service needs to be up — every dependency is served by one local WireMock instance, started once for the run and reset between scenarios.

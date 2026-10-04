@@ -1,5 +1,7 @@
-using prepaid.api;
-using prepaid.api.Controllers;
+using prepaid.api.Clients.CustomerDirectory;
+using prepaid.api.Clients.Payments;
+using prepaid.api.Features.Bookings;
+using prepaid.api.Features.Refunds;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,9 +14,14 @@ builder.Services.AddOpenApi();
 builder.Services.AddSingleton<IBookingService, BookingService>();
 builder.Services.AddSingleton<IRefundLedger, InMemoryRefundLedger>();
 builder.Services.AddScoped<IRefundService, RefundService>();
-builder.Services.AddHttpClient<IPaymentService, PaymentService>((sp, client) =>
+builder.Services.AddHttpClient<IPaymentApiClient, PaymentApiClient>((sp, client) =>
 {
     var baseUrl = sp.GetRequiredService<IConfiguration>()["PaymentApi:BaseUrl"];
+    client.BaseAddress = new Uri(baseUrl!);
+}).AddStandardResilienceHandler();
+builder.Services.AddHttpClient<ICustomerDirectoryClient, CustomerDirectoryClient>((sp, client) =>
+{
+    var baseUrl = sp.GetRequiredService<IConfiguration>()["CustomerDirectory:BaseUrl"];
     client.BaseAddress = new Uri(baseUrl!);
 }).AddStandardResilienceHandler();
 

@@ -30,7 +30,7 @@ public class RefundService : IRefundService
       return Failure("Refund amount must be positive.");
     }
 
-    Payment payment;
+    Clients.Payments.Payment payment;
     try
     {
       payment = await _paymentApiClient.Payment(transactionId, cancellationToken);

@@ -1,6 +1,6 @@
 using System.Net.Http.Json;
 using FluentAssertions;
-using prepaid.api.Controllers;
+using prepaid.api.Features.Bookings;
 using Reqnroll;
 
 namespace prepaid.api.BddTests.StepDefinitions;
@@ -47,7 +47,7 @@ public class BookingSteps
     public async Task ThenTheCustomerNameShouldBe(string customerName)
     {
         var response = _scenarioContext.Get<HttpResponseMessage>();
-        var booking = await response.Content.ReadFromJsonAsync<Booking>();
-        booking!.CustomerName.Should().Be(customerName);
+        var details = await response.Content.ReadFromJsonAsync<BookingDetails>();
+        details!.Booking.CustomerName.Should().Be(customerName);
     }
 }

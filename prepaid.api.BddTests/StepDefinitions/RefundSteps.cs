@@ -1,10 +1,9 @@
 using System.Net.Http.Json;
 using FluentAssertions;
-using prepaid.api;
+using prepaid.api.BddTests.MockScenarios;
 using prepaid.api.BddTests.Support;
+using prepaid.api.Features.Refunds;
 using Reqnroll;
-using WireMock.RequestBuilders;
-using WireMock.ResponseBuilders;
 
 namespace prepaid.api.BddTests.StepDefinitions;
 
@@ -22,12 +21,7 @@ public class RefundSteps
     public void GivenAPaymentExistsWithTransactionIdAndAmount(string transactionId, decimal amount)
     {
         var factory = _scenarioContext.Get<CustomWebApplicationFactory>();
-        factory.PaymentApiServer
-            .Given(Request.Create().WithPath($"/payments/{transactionId}").UsingGet())
-            .RespondWith(Response.Create()
-                .WithStatusCode(200)
-                .WithHeader("Content-Type", "application/json")
-                .WithBodyAsJson(new { transactionId, amount }));
+        PaymentApiScenarios.Found(factory.DownstreamServers.Server, transactionId, amount);
     }
 
     [When(@"I refund (\d+) for transaction ""(.*)""")]

@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
-using WireMock.Server;
+using prepaid.api.BddTests.Infrastructure;
 
 namespace prepaid.api.BddTests.Support;
 
@@ -9,7 +9,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 {
     public const string TestApiKey = "test-api-key";
 
-    public WireMockServer PaymentApiServer { get; } = WireMockServer.Start();
+    public DownstreamServers DownstreamServers { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -17,7 +17,8 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["PaymentApi:BaseUrl"] = PaymentApiServer.Url,
+                ["PaymentApi:BaseUrl"] = DownstreamServers.Server.Url,
+                ["CustomerDirectory:BaseUrl"] = DownstreamServers.Server.Url,
                 ["Refunds:ApiKey"] = TestApiKey
             });
         });
@@ -25,8 +26,7 @@ public class CustomWebApplicationFactory : WebApplicationFactory<Program>
 
     protected override void Dispose(bool disposing)
     {
-        PaymentApiServer.Stop();
-        PaymentApiServer.Dispose();
+        DownstreamServers.Dispose();
         base.Dispose(disposing);
     }
 }

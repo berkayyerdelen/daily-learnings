@@ -1,25 +1,18 @@
-using elastic_search.Controllers;
-using Serilog;
+using Middleware.Logging.Extensions;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Serilog configuration
-builder.Host.UseSerilog((context, services, configuration) =>
-{
-    configuration
-        .ReadFrom.Configuration(context.Configuration)
-        .ReadFrom.Services(services);
-});
-builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
-builder.Services.AddProblemDetails();
+builder.Services.AddSerilog(builder.Configuration, "Logger");
 // Add services to the container.
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-app.UseMiddleware<RequestLoggingMiddleware>();
-app.UseExceptionHandler();
+app.UseErrorLogging();
+app.UseRequestLogging();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

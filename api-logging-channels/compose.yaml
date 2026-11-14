@@ -6,22 +6,5 @@ services:
       MSSQL_SA_PASSWORD: "Your_strong_Passw0rd"
     ports:
       - "1434:1433"
-    # The image has no init-script hook; create the database once with:
-    #   docker compose exec sqlserver /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa \
-    #     -P 'Your_strong_Passw0rd' -i /db/sqlserver/001_create_api_logs.sql
     volumes:
       - ./db:/db:ro
-
-  # Alternative store: docker compose --profile postgres up
-  # and set ApiLogging__Provider=Postgres plus a Postgres ConnectionStrings__ApiLogs.
-  postgres:
-    profiles: ["postgres"]
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: api_logging
-    ports:
-      - "5434:5432"
-    volumes:
-      - ./db/postgres:/docker-entrypoint-initdb.d:ro

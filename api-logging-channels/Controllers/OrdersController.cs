@@ -5,12 +5,10 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace ApiLogging.Api.Controllers;
 
-// Validation attributes go on the constructor parameters (MVC validates those for records);
-// [SensitiveData] goes on the property, which is what System.Text.Json serializes.
 public sealed record CreateOrderRequest(
     [Required] string CustomerId,
     [Range(0.01, 1_000_000)] decimal Amount,
-    [Required][property: SensitiveData] string CardNumber);
+    [Required] string CardNumber);
 
 public sealed record OrderResponse(Guid Id, string CustomerId, decimal Amount, DateTimeOffset CreatedAt);
 
@@ -43,7 +41,7 @@ public sealed class OrdersController : ControllerBase
 [Route("api/auth")]
 public sealed class AuthController : ControllerBase
 {
-    // Credentials must never reach the log table, not even masked.
+    // Credentials must never reach the log table.
     [SkipApiLog]
     [HttpPost("login")]
     public IActionResult Login(LoginRequest request) => Ok(new { token = "demo-token" });

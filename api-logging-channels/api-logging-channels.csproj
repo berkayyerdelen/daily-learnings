@@ -8,13 +8,7 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <!-- ADO.NET providers only; no ORM. SQL Server is the default, PostgreSQL the alternative. -->
         <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
-        <PackageReference Include="Npgsql" Version="8.0.6" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <InternalsVisibleTo Include="api-logging-channels.Tests" />
     </ItemGroup>
 
 </Project>

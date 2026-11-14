@@ -1,6 +1,6 @@
 @host = http://localhost:5191
 
-### Logged (CardNumber is masked in the log)
+### Logged
 POST {{host}}/api/orders
 Content-Type: application/json
 

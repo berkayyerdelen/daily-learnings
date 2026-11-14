@@ -1,15 +1,26 @@
-// Load test for api-logging-channels.
+// Load test for api-logging-channels. Two modes:
 //
+// http (default): load the running API over HTTP.
 //   dotnet run -c Release -- --url http://localhost:5191 --duration 30 --concurrency 200 --body-size 1000
 //   dotnet run -c Release -- --path /api/auth/login     (baseline: endpoint is not logged)
+//
+// db: skip HTTP and push logs straight into the real channel + background service + SqlBulkCopy
+// at a target rate. Answers "can the pipeline and my SQL Server sustain N logs/s?".
+//   dotnet run -c Release -- --mode db --rps 100000 --duration 30 --body-size 500 --batch-size 5000 \
+//       --connection "Server=localhost,1434;Database=api_logging;User Id=sa;Password=...;TrustServerCertificate=True"
+//   (omit --connection to measure the pipeline alone, with a no-op repository)
 //
 // Sends POST /api/orders (or --path) from N concurrent clients for the given duration. Every second it
 // prints requests/s, errors and the logging queue stats from GET /api-logs/stats. At the end it
 // prints latency percentiles and waits for the queue to drain to show the final DB counts.
 
 using System.Diagnostics;
+using ApiLogging.LoadTests;
 using System.Net.Http.Json;
 using System.Text;
+
+if (Arg("--mode", "http") == "db")
+    return await DbLoadTest.RunAsync(Arg);
 
 var url = Arg("--url", "http://localhost:5191").TrimEnd('/');
 var duration = TimeSpan.FromSeconds(int.Parse(Arg("--duration", "30")));
@@ -97,7 +108,7 @@ if (all.Length > 0)
 Console.WriteLine();
 Console.WriteLine("Waiting for the queue to drain...");
 var drainUntil = Stopwatch.StartNew();
-ApiLogStats? after;
+StatsDto? after;
 do
 {
     await Task.Delay(500);
@@ -116,13 +127,13 @@ return 0;
 
 double P(double q) => all[Math.Min(all.Length - 1, (int)(q * all.Length))];
 
-async Task<ApiLogStats?> GetStats()
+async Task<StatsDto?> GetStats()
 {
-    try { return await http.GetFromJsonAsync<ApiLogStats>("/api-logs/stats"); }
+    try { return await http.GetFromJsonAsync<StatsDto>("/api-logs/stats"); }
     catch { return null; }
 }
 
-static void Print(string title, ApiLogStats? s) => Console.WriteLine(s is null
+static void Print(string title, StatsDto? s) => Console.WriteLine(s is null
     ? $"{title}: unavailable"
     : $"{title}: queued {s.Queued:N0}/{s.Capacity:N0}, enqueued {s.Enqueued:N0}, dropped {s.Dropped:N0}, " +
       $"inserted {s.Inserted:N0}, failed {s.Failed:N0}, batches {s.Batches:N0}");
@@ -133,4 +144,4 @@ string Arg(string name, string fallback)
     return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback;
 }
 
-record ApiLogStats(long Queued, int Capacity, long QueuedBytes, long Enqueued, long Dropped, long Inserted, long Failed, long Batches);
+record StatsDto(long Queued, int Capacity, long QueuedBytes, long Enqueued, long Dropped, long Inserted, long Failed, long Batches);

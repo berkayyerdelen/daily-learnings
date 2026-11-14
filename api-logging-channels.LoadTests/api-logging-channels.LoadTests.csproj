@@ -9,4 +9,9 @@
         <ServerGarbageCollection>true</ServerGarbageCollection>
     </PropertyGroup>
 
+    <ItemGroup>
+        <!-- db mode drives the real ApiLogBackgroundService + SqlApiLogRepository directly. -->
+        <ProjectReference Include="..\api-logging-channels\api-logging-channels.csproj" />
+    </ItemGroup>
+
 </Project>

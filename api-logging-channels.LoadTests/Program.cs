@@ -3,6 +3,7 @@
 // http (default): load the running API over HTTP.
 //   dotnet run -c Release -- --url http://localhost:5191 --duration 30 --concurrency 200 --body-size 1000
 //   dotnet run -c Release -- --path /api/auth/login     (baseline: endpoint is not logged)
+//   dotnet run -c Release -- --rps 30000 --concurrency 128   (fixed rate instead of max)
 //
 // db: skip HTTP and push logs straight into the real channel + background service + SqlBulkCopy
 // at a target rate. Answers "can the pipeline and my SQL Server sustain N logs/s?".
@@ -25,6 +26,9 @@ if (Arg("--mode", "http") == "db")
 var url = Arg("--url", "http://localhost:5191").TrimEnd('/');
 var duration = TimeSpan.FromSeconds(int.Parse(Arg("--duration", "30")));
 var concurrency = int.Parse(Arg("--concurrency", "100"));
+// 0 = as fast as possible (finds the maximum). N = a fixed N requests/s spread over the workers,
+// to check behaviour at an expected traffic level. Needs enough --concurrency to reach N.
+var rps = int.Parse(Arg("--rps", "0"));
 var bodySize = int.Parse(Arg("--body-size", "500")); // chars of padding in the request body
 // /api/orders is logged; /api/auth/login has [SkipApiLog], so it gives a no-logging baseline.
 var path = Arg("--path", "/api/orders");
@@ -41,7 +45,8 @@ using var http = new HttpClient(new SocketsHttpHandler
 var body = $$"""{"customerId":"c-42","amount":10.5,"cardNumber":"4111","userName":"u","password":"p","notes":"{{new string('x', bodySize)}}"}""";
 var payload = Encoding.UTF8.GetBytes(body);
 
-Console.WriteLine($"Target {url}{path}  concurrency {concurrency}  duration {duration.TotalSeconds}s  body {payload.Length} bytes");
+Console.WriteLine($"Target {url}{path}  concurrency {concurrency}  duration {duration.TotalSeconds}s  body {payload.Length} bytes  " +
+                  (rps > 0 ? $"rate {rps:N0} req/s" : "rate: max"));
 var before = await GetStats();
 if (before is null)
 {
@@ -52,13 +57,26 @@ Print("stats before", before);
 
 using var cts = new CancellationTokenSource(duration);
 var latencies = new List<double>[concurrency];
-long ok = 0, errors = 0;
+long ok = 0, errors = 0, scheduled = 0;
+var runClock = Stopwatch.StartNew();
 
 var workers = Enumerable.Range(0, concurrency).Select(i => Task.Run(async () =>
 {
     var mine = latencies[i] = new List<double>(100_000);
     while (!cts.IsCancellationRequested)
     {
+        if (rps > 0)
+        {
+            // Fixed rate: request number n is due at n / rps seconds after the start.
+            var due = TimeSpan.FromSeconds((double)Interlocked.Increment(ref scheduled) / rps);
+            var wait = due - runClock.Elapsed;
+            if (wait > TimeSpan.Zero)
+            {
+                try { await Task.Delay(wait, cts.Token); }
+                catch (OperationCanceledException) { break; }
+            }
+        }
+
         var start = Stopwatch.GetTimestamp();
         try
         {

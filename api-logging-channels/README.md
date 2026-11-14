@@ -65,6 +65,11 @@ dotnet run -c Release --project api-logging-channels
 dotnet run -c Release --project api-logging-channels.LoadTests -- --duration 30 --concurrency 64 --body-size 1000
 ```
 
+Without `--rps` it sends as fast as possible, which finds the maximum but always ends in drops once
+requests outpace SQL Server's insert rate. That's by design: a log is dropped rather than slowing a request.
+Use `--rps N --concurrency 128` to test at your expected traffic, where the target is 0 drops. To find
+SQL Server's insert ceiling, run `--mode db --rps N` at increasing N; the highest N with 0 drops is it.
+
 It prints req/s, errors and the queue stats every second, then latency percentiles, and waits for the queue
 to drain. `--path /api/auth/login` hits an endpoint with `[SkipApiLog]`, as a no-logging baseline.
 

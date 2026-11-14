@@ -102,7 +102,9 @@ do
 {
     await Task.Delay(500);
     after = await GetStats();
-} while (after is { Queued: > 0 } && drainUntil.Elapsed < TimeSpan.FromSeconds(60));
+    // QueuedBytes is released only after a batch is inserted (or fails), so 0 means every log
+    // has reached the database, including the last partial batch still waiting for FlushInterval.
+} while (after is { QueuedBytes: > 0 } && drainUntil.Elapsed < TimeSpan.FromSeconds(60));
 
 Print("stats after", after);
 if (before is not null && after is not null)
@@ -131,4 +133,4 @@ string Arg(string name, string fallback)
     return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback;
 }
 
-record ApiLogStats(long Queued, int Capacity, long Enqueued, long Dropped, long Inserted, long Failed, long Batches);
+record ApiLogStats(long Queued, int Capacity, long QueuedBytes, long Enqueued, long Dropped, long Inserted, long Failed, long Batches);

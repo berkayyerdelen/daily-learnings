@@ -1,0 +1,25 @@
+@host = http://localhost:5191
+
+### Logged (CardNumber is masked in the log)
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{ "customerId": "c-42", "amount": 99.90, "cardNumber": "4111111111111111" }
+
+### Logged as 400 (validation fails before the action runs)
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{ "customerId": "", "amount": 0 }
+
+### Logged as 404
+GET {{host}}/api/orders/00000000-0000-0000-0000-000000000000
+
+### Logged as 500 with the exception
+GET {{host}}/api/orders/boom
+
+### Not logged ([SkipApiLog])
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{ "userName": "alice", "password": "secret" }

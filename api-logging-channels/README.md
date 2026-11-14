@@ -31,6 +31,20 @@ dotnet run
 
 Send requests with `api-logging-channels.http`. Tests: `dotnet test api-logging-channels.Tests`.
 
+## Reading logs while they're written (troubleshooting)
+
+`db/troubleshooting.sql` has ready-made queries: recent errors, a time window, one request by trace id,
+a full row by id, slowest requests, and error rate per minute.
+
+- **Safe during heavy inserts:** the database uses `READ_COMMITTED_SNAPSHOT`, so queries read the last
+  committed rows and neither wait for nor block bulk inserts.
+- **Fast:** each query matches an index (`CreatedAt`, `TraceId`, and a filtered index on
+  `StatusCode >= 400`). Keep a time range on list queries; bodies are fetched by `Id` once the row is found.
+- **Insert cost:** every index slows inserts. `IX_ApiLogs_TraceId` (random values) is the most expensive;
+  drop it if you never search by trace id.
+- **Logs contain full request/response bodies,** which can include personal data or secrets. Restrict who
+  can query this table.
+
 ## Queue stats: `GET /api-logs/stats`
 
 ```json

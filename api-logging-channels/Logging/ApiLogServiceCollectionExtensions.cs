@@ -9,7 +9,11 @@ public static class ApiLogServiceCollectionExtensions
 {
     public static IServiceCollection AddApiLogging(this IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<ApiLogOptions>(configuration.GetSection("ApiLogging"));
+        // Invalid settings stop the app at startup with a clear message instead of failing at runtime.
+        services.AddOptions<ApiLogOptions>()
+            .Bind(configuration.GetSection("ApiLogging"))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
 
         // One bounded channel shared by the filter (many writers) and the background service (one reader).
         services.AddSingleton(sp => Channel.CreateBounded<ApiLog>(

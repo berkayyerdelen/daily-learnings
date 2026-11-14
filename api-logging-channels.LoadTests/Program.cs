@@ -6,7 +6,7 @@
 //
 // db: skip HTTP and push logs straight into the real channel + background service + SqlBulkCopy
 // at a target rate. Answers "can the pipeline and my SQL Server sustain N logs/s?".
-//   dotnet run -c Release -- --mode db --rps 100000 --duration 30 --body-size 500 --batch-size 5000 --writers 4 \
+//   dotnet run -c Release -- --mode db --rps 100000 --duration 30 --body-size 500 --batch-size 1000 --writers 1 \
 //       --connection "Server=localhost,1434;Database=api_logging;User Id=sa;Password=...;TrustServerCertificate=True"
 //   (omit --connection to measure the pipeline alone, with a no-op repository)
 //

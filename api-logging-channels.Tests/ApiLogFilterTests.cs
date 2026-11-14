@@ -127,6 +127,22 @@ public sealed class ApiLogFilterTests : IDisposable
         Assert.Equal(3, stats.Inserted + stats.Dropped);
     }
 
+    [Theory]
+    [InlineData("ApiLogging:BatchSize", "10000")]   // above the lock-escalation-safe cap
+    [InlineData("ApiLogging:WriterCount", "0")]
+    [InlineData("ApiLogging:Capacity", "0")]
+    public void Invalid_settings_stop_the_app_at_startup(string key, string value)
+    {
+        using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
+        {
+            b.UseSetting(key, value);
+            b.ConfigureServices(s => s.AddSingleton<IApiLogRepository>(new FakeApiLogRepository()));
+        });
+
+        var error = Assert.ThrowsAny<Exception>(() => factory.CreateClient());
+        Assert.Contains(key.Split(':')[1], error.ToString());
+    }
+
     public void Dispose()
     {
         _client.Dispose();

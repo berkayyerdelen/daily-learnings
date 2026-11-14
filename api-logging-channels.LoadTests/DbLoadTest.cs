@@ -23,8 +23,8 @@ internal static class DbLoadTest
         var options = new ApiLogOptions
         {
             Capacity = int.Parse(arg("--capacity", "100000")),
-            BatchSize = int.Parse(arg("--batch-size", "5000")),
-            WriterCount = int.Parse(arg("--writers", "2")),
+            BatchSize = int.Parse(arg("--batch-size", "1000")),   // the API caps this at 4,000
+            WriterCount = int.Parse(arg("--writers", "1")),
             FlushInterval = TimeSpan.FromSeconds(1)
         };
 

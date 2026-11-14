@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace ApiLogging.Api.Logging;
 
 public sealed record ApiLog(
@@ -24,6 +26,7 @@ public sealed record ApiLog(
 public sealed class ApiLogOptions
 {
     /// <summary>Max logs held in memory. When full, new logs are dropped instead of slowing requests.</summary>
+    [Range(1, 1_000_000)]
     public int Capacity { get; set; } = 10_000;
 
     /// <summary>
@@ -31,28 +34,40 @@ public sealed class ApiLogOptions
     /// alone does not bound memory (10,000 logs x 1 MB bodies = 10 GB). Whichever limit is hit
     /// first wins.
     /// </summary>
+    [Range(typeof(long), "65536", "17179869184")] // 64 KB .. 16 GB
     public long MaxQueueBytes { get; set; } = 256L * 1024 * 1024;
 
     /// <summary>
-    /// Writer loops inserting batches in parallel, each on its own connection. More writers raise
-    /// throughput when SQL Server has headroom, and a batch that is retrying no longer holds up
-    /// the others. Each writer holds one connection and one batch in memory.
+    /// Writer loops inserting batches in parallel, each on its own connection. Default 1: all
+    /// writers insert at the end of the same table, so on a plain table (no special index or
+    /// lock settings) a second writer mostly waits for the first one's locks. Raise it only if
+    /// a load test against your SQL Server shows a higher insert rate.
     /// </summary>
-    public int WriterCount { get; set; } = 2;
+    [Range(1, 16)]
+    public int WriterCount { get; set; } = 1;
 
-    /// <summary>Insert when this many logs are collected...</summary>
+    /// <summary>
+    /// Insert when this many logs are collected... Capped at 4,000: SQL Server swaps a statement's
+    /// row locks for a table lock at about 5,000 locks, which would block everything else on the
+    /// table (other API instances, troubleshooting queries) until the batch commits. Staying under
+    /// the threshold avoids that without changing any database setting.
+    /// </summary>
+    [Range(1, 4_000)]
     public int BatchSize { get; set; } = 1_000;
 
     /// <summary>...or when this much time has passed, whichever comes first.</summary>
+    [Range(typeof(TimeSpan), "00:00:00.010", "00:05:00")]
     public TimeSpan FlushInterval { get; set; } = TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// Extra attempts for a batch that failed with a temporary error (timeout, lost connection,
     /// deadlock, failover). After that the batch is dropped and counted as failed.
     /// </summary>
+    [Range(0, 10)]
     public int MaxRetries { get; set; } = 3;
 
     /// <summary>Backoff before the first retry; doubles each attempt (with jitter), capped at 5 s.</summary>
+    [Range(typeof(TimeSpan), "00:00:00.001", "00:00:10")]
     public TimeSpan RetryBaseDelay { get; set; } = TimeSpan.FromMilliseconds(200);
 }
 

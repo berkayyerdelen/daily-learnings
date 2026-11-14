@@ -33,15 +33,14 @@ Send requests with `api-logging-channels.http`. Tests: `dotnet test api-logging-
 
 ## Reading logs while they're written (troubleshooting)
 
-`db/troubleshooting.sql` has ready-made queries: recent errors, a time window, one request by trace id,
-a full row by id, slowest requests, and error rate per minute.
+`db/troubleshooting.sql` has ready-made queries: latest errors, latest requests to an endpoint, one
+request by trace id, a full row by id, slowest requests, and error rate per minute.
 
-- **Safe during heavy inserts:** the database uses `READ_COMMITTED_SNAPSHOT`, so queries read the last
-  committed rows and neither wait for nor block bulk inserts.
-- **Fast:** each query matches an index (`CreatedAt`, `TraceId`, and a filtered index on
-  `StatusCode >= 400`). Keep a time range on list queries; bodies are fetched by `Id` once the row is found.
-- **Insert cost:** every index slows inserts. `IX_ApiLogs_TraceId` (random values) is the most expensive;
-  drop it if you never search by trace id.
+- **No database changes needed.** The app only needs the plain table in `db/create_api_logs.sql`.
+- **Safe during heavy inserts:** the queries run at `READ UNCOMMITTED`, so they take no row locks and
+  neither wait for nor block bulk inserts. They may briefly show rows from a batch still being inserted.
+- **Fast without extra indexes:** `Id` only increases, so "latest" queries read the primary key backwards,
+  and the rest are limited to a recent `Id` range instead of scanning the whole table.
 - **Logs contain full request/response bodies,** which can include personal data or secrets. Restrict who
   can query this table.
 
@@ -124,14 +123,15 @@ the same either way: they're dominated by the request/response text that is stor
   not retried, so they don't hold up newer batches. Each batch is one transaction, so a retry after a
   deadlock or a lost connection can't create duplicates. The exception is a timeout right at commit time,
   which in rare cases can write a batch twice.
-- **Parallel writers** (`WriterCount`) read the same channel and bulk-insert on separate connections,
-  so throughput isn't capped by one connection, and a batch that is retrying doesn't hold up the others.
-  Rows are streamed through `ApiLogDataReader` (no `DataTable` copy, no shared state). With no database,
-  4 writers kept up with 200,000 logs/s. Measure your SQL Server with `--mode db --writers N`.
-- **Parallel writers don't deadlock each other:** they only insert new rows, and the table has no foreign
-  keys, unique secondary indexes or triggers. What *can* happen is lock escalation to a table lock, which
-  makes writers take turns, so the create script sets `LOCK_ESCALATION = DISABLE` (delete old rows in
-  chunks because of that) and `OPTIMIZE_FOR_SEQUENTIAL_KEY = ON` for the shared last page.
+- **One writer by default.** All writers insert at the end of the same table, and a load test showed a
+  second writer waiting for the first one's locks (`LCK_M_IX`). `WriterCount` can be raised if a load test
+  against your SQL Server (`--mode db --writers N`) shows a higher insert rate. Rows are streamed through
+  `ApiLogDataReader` (no `DataTable` copy, no shared state), so raising it is safe.
+- **No lock escalation, without database settings:** SQL Server swaps a statement's row locks for a table
+  lock at about 5,000 locks, which would block other API instances and queries. `BatchSize` is capped at
+  4,000 (default 1,000) and validated at startup, so a batch never reaches that point.
+- **Short transactions:** each batch is one quick bulk insert. `SqlBulkCopy` streaming is off: under HTTP
+  load it made a batch take 44 s while holding its locks.
 - **Deadlocks:** our inserts only append to the end of an `IDENTITY` clustered index, so they don't deadlock
   with each other. They become possible if something else uses the table (a retention job deleting in
   large chunks, reports at `REPEATABLE READ`/`SERIALIZABLE`, extra indexes or triggers), which is why 1205
@@ -143,8 +143,8 @@ the same either way: they're dominated by the request/response text that is stor
 |---|---|---|
 | `Capacity` | `10000` | Max logs held in memory |
 | `MaxQueueBytes` | `268435456` (256 MB) | Max memory for queued and in-flight logs |
-| `WriterCount` | `2` | Parallel writer loops, each with its own connection |
-| `BatchSize` | `1000` | Rows per bulk insert |
+| `WriterCount` | `1` | Parallel writer loops, each with its own connection (1–16) |
+| `BatchSize` | `1000` | Rows per bulk insert (max 4,000, to stay under lock escalation) |
 | `FlushInterval` | `00:00:02` | Max wait before inserting a partial batch |
 | `MaxRetries` | `3` | Extra attempts for a batch that failed with a temporary error |
 | `RetryBaseDelay` | `00:00:00.200` | First retry delay; doubles each attempt with random jitter, capped at 5 s |

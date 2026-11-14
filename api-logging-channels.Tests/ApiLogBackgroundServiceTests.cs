@@ -11,13 +11,14 @@ public sealed class ApiLogBackgroundServiceTests
     private readonly Channel<ApiLog> _channel = Channel.CreateBounded<ApiLog>(1_000);
     private readonly ApiLogStats _stats = new();
 
-    private ApiLogBackgroundService Create(int batchSize, TimeSpan flushInterval, int maxRetries = 3) => new(
+    private ApiLogBackgroundService Create(int batchSize, TimeSpan flushInterval, int maxRetries = 3, int writers = 1) => new(
         _channel.Reader, _repository, _stats,
         Options.Create(new ApiLogOptions
         {
             BatchSize = batchSize,
             FlushInterval = flushInterval,
             MaxRetries = maxRetries,
+            WriterCount = writers,
             RetryBaseDelay = TimeSpan.FromMilliseconds(1) // keep tests fast
         }),
         NullLogger<ApiLogBackgroundService>.Instance);
@@ -99,6 +100,24 @@ public sealed class ApiLogBackgroundServiceTests
         Assert.Equal(3, _repository.Attempts); // 1 try + 2 retries
         Assert.Equal(0, _stats.Inserted);
         Assert.Equal(0, _stats.QueuedBytes);   // memory released even though the batch was dropped
+    }
+
+    [Fact]
+    public async Task Parallel_writers_insert_every_log_exactly_once()
+    {
+        var channel = Channel.CreateBounded<ApiLog>(10_000);
+        var service = new ApiLogBackgroundService(channel.Reader, _repository, _stats,
+            Options.Create(new ApiLogOptions { BatchSize = 7, FlushInterval = TimeSpan.FromMilliseconds(20), WriterCount = 4 }),
+            NullLogger<ApiLogBackgroundService>.Instance);
+        await service.StartAsync(default);
+
+        for (var i = 0; i < 5_000; i++) Assert.True(channel.Writer.TryWrite(Log(i)));
+        await service.StopAsync(default); // drains with all writers
+
+        Assert.Equal(5_000, _repository.Logs.Select(l => l.Path).Distinct().Count());
+        Assert.Equal(5_000, _repository.Logs.Count);
+        Assert.All(_repository.Batches, b => Assert.InRange(b.Length, 1, 7));
+        Assert.Equal(0, _stats.InFlight);
     }
 
     private static async Task WaitUntil(Func<bool> condition)

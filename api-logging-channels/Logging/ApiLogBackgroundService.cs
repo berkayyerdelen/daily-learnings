@@ -4,7 +4,7 @@ using Microsoft.Extensions.Options;
 namespace ApiLogging.Api.Logging;
 
 /// <summary>
-/// Reads logs from the channel and inserts them in batches: when BatchSize logs are
+/// Reads logs from the channel with WriterCount parallel writers and inserts them in batches: when BatchSize logs are
 /// collected, or when FlushInterval has passed, whichever comes first. On shutdown it
 /// writes whatever is left in the channel.
 ///
@@ -22,7 +22,13 @@ public sealed class ApiLogBackgroundService(
 
     private readonly ApiLogOptions _options = options.Value;
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        // WriterCount independent loops reading the same channel. Each owns its batch list, and the
+        // repository is stateless, so they share nothing but the channel (which is built for this).
+        Task.WhenAll(Enumerable.Range(0, Math.Max(1, _options.WriterCount))
+            .Select(_ => RunWriterAsync(stoppingToken)));
+
+    private async Task RunWriterAsync(CancellationToken stoppingToken)
     {
         var batch = new List<ApiLog>(_options.BatchSize);
 
@@ -39,7 +45,7 @@ public sealed class ApiLogBackgroundService(
         {
         }
 
-        // Shutdown: drain what is left.
+        // Shutdown: drain what is left (all writers drain in parallel).
         while (reader.TryRead(out var log))
         {
             batch.Add(log);
@@ -74,7 +80,7 @@ public sealed class ApiLogBackgroundService(
     {
         if (batch.Count == 0) return;
 
-        stats.SetInFlight(batch.Count);
+        stats.AddInFlight(batch.Count);
         try
         {
             for (var attempt = 1; ; attempt++)
@@ -107,7 +113,7 @@ public sealed class ApiLogBackgroundService(
             long bytes = 0;
             foreach (var log in batch) bytes += log.ApproximateBytes;
             stats.Release(bytes);
-            stats.SetInFlight(0);
+            stats.AddInFlight(-batch.Count);
             batch.Clear(); // keeps the list's capacity: no new allocation per batch
         }
     }

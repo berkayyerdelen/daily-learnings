@@ -1,4 +1,3 @@
-using System.Data;
 using Microsoft.Data.SqlClient;
 
 namespace ApiLogging.Api.Logging;
@@ -16,9 +15,8 @@ public interface IApiLogRepository
 /// ADO.NET batch insert with SqlBulkCopy: one round trip per batch, much faster than
 /// one INSERT per row (and no 1,000-row / 2,100-parameter limit of multi-row INSERTs).
 ///
-/// The DataTable is created once and cleared after each batch, so its schema and internal
-/// storage are reused instead of reallocated. This is safe because exactly one background
-/// service calls this, never concurrently.
+/// Rows are streamed through <see cref="ApiLogDataReader"/>: no DataTable copy of the batch,
+/// and no shared state, so several writers can insert in parallel.
 /// </summary>
 public sealed class SqlApiLogRepository(string connectionString) : IApiLogRepository
 {
@@ -44,8 +42,6 @@ public sealed class SqlApiLogRepository(string connectionString) : IApiLogReposi
         49918, 49919, 49920 // Azure SQL: not enough resources / too many operations
     ];
 
-    private readonly DataTable _table = CreateTable();
-
     public bool IsTransient(Exception exception) => exception switch
     {
         SqlException sql => sql.Errors.Cast<SqlError>().Any(e => TransientErrorNumbers.Contains(e.Number)),
@@ -53,48 +49,25 @@ public sealed class SqlApiLogRepository(string connectionString) : IApiLogReposi
         _ => false
     };
 
+    // Stateless: safe to call from several writers at once.
     public async Task InsertBatchAsync(IReadOnlyList<ApiLog> logs, CancellationToken cancellationToken)
     {
-        try
+        await using var connection = new SqlConnection(connectionString); // pooled
+        await connection.OpenAsync(cancellationToken);
+
+        // No TableLock: with a clustered index it takes an exclusive table lock, so parallel
+        // writers and other app instances would take turns instead of inserting concurrently.
+        using var bulkCopy = new SqlBulkCopy(connection)
         {
-            foreach (var l in logs)
-                _table.Rows.Add(l.CreatedAt, l.TraceId, l.Method, l.Path, l.QueryString, l.StatusCode,
-                    l.DurationMs, l.RequestBody, l.ResponseBody, l.Exception);
+            DestinationTableName = "dbo.ApiLogs",
+            BatchSize = 0,          // whole batch in one transaction: all rows or none
+            BulkCopyTimeout = 60,
+            EnableStreaming = true  // stream large bodies instead of buffering each row
+        };
+        foreach (var column in ApiLogDataReader.Columns)
+            bulkCopy.ColumnMappings.Add(column, column); // Id is identity, skipped
 
-            await using var connection = new SqlConnection(connectionString); // pooled
-            await connection.OpenAsync(cancellationToken);
-
-            // No TableLock: with a clustered index it would block every other app instance.
-            using var bulkCopy = new SqlBulkCopy(connection)
-            {
-                DestinationTableName = "dbo.ApiLogs",
-                BatchSize = 0,          // whole batch in one transaction
-                BulkCopyTimeout = 60
-            };
-            foreach (DataColumn column in _table.Columns)
-                bulkCopy.ColumnMappings.Add(column.ColumnName, column.ColumnName); // Id is identity, skipped
-
-            await bulkCopy.WriteToServerAsync(_table, cancellationToken);
-        }
-        finally
-        {
-            _table.Clear(); // release row references so bodies can be collected
-        }
-    }
-
-    private static DataTable CreateTable()
-    {
-        var table = new DataTable();
-        table.Columns.Add(nameof(ApiLog.CreatedAt), typeof(DateTime));
-        table.Columns.Add(nameof(ApiLog.TraceId), typeof(string));
-        table.Columns.Add(nameof(ApiLog.Method), typeof(string));
-        table.Columns.Add(nameof(ApiLog.Path), typeof(string));
-        table.Columns.Add(nameof(ApiLog.QueryString), typeof(string));
-        table.Columns.Add(nameof(ApiLog.StatusCode), typeof(int));
-        table.Columns.Add(nameof(ApiLog.DurationMs), typeof(long));
-        table.Columns.Add(nameof(ApiLog.RequestBody), typeof(string));
-        table.Columns.Add(nameof(ApiLog.ResponseBody), typeof(string));
-        table.Columns.Add(nameof(ApiLog.Exception), typeof(string));
-        return table;
+        await using var reader = new ApiLogDataReader(logs);
+        await bulkCopy.WriteToServerAsync(reader, cancellationToken);
     }
 }

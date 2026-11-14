@@ -17,7 +17,8 @@ public static class ApiLogServiceCollectionExtensions
             {
                 // With Wait, TryWrite returns false when full instead of blocking: the log is dropped.
                 FullMode = BoundedChannelFullMode.Wait,
-                SingleReader = true,
+                // One reader enables a faster channel implementation; parallel writers need many.
+                SingleReader = sp.GetRequiredService<IOptions<ApiLogOptions>>().Value.WriterCount <= 1,
                 SingleWriter = false
             }));
         services.AddSingleton(sp => sp.GetRequiredService<Channel<ApiLog>>().Writer);

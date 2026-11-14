@@ -110,6 +110,14 @@ the same either way: they're dominated by the request/response text that is stor
   not retried, so they don't hold up newer batches. Each batch is one transaction, so a retry after a
   deadlock or a lost connection can't create duplicates. The exception is a timeout right at commit time,
   which in rare cases can write a batch twice.
+- **Parallel writers** (`WriterCount`) read the same channel and bulk-insert on separate connections,
+  so throughput isn't capped by one connection, and a batch that is retrying doesn't hold up the others.
+  Rows are streamed through `ApiLogDataReader` (no `DataTable` copy, no shared state). With no database,
+  4 writers kept up with 200,000 logs/s. Measure your SQL Server with `--mode db --writers N`.
+- **Parallel writers don't deadlock each other:** they only insert new rows, and the table has no foreign
+  keys, unique secondary indexes or triggers. What *can* happen is lock escalation to a table lock, which
+  makes writers take turns, so the create script sets `LOCK_ESCALATION = DISABLE` (delete old rows in
+  chunks because of that) and `OPTIMIZE_FOR_SEQUENTIAL_KEY = ON` for the shared last page.
 - **Deadlocks:** our inserts only append to the end of an `IDENTITY` clustered index, so they don't deadlock
   with each other. They become possible if something else uses the table (a retention job deleting in
   large chunks, reports at `REPEATABLE READ`/`SERIALIZABLE`, extra indexes or triggers), which is why 1205
@@ -121,6 +129,7 @@ the same either way: they're dominated by the request/response text that is stor
 |---|---|---|
 | `Capacity` | `10000` | Max logs held in memory |
 | `MaxQueueBytes` | `268435456` (256 MB) | Max memory for queued and in-flight logs |
+| `WriterCount` | `2` | Parallel writer loops, each with its own connection |
 | `BatchSize` | `1000` | Rows per bulk insert |
 | `FlushInterval` | `00:00:02` | Max wait before inserting a partial batch |
 | `MaxRetries` | `3` | Extra attempts for a batch that failed with a temporary error |

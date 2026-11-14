@@ -24,18 +24,19 @@ internal static class DbLoadTest
         {
             Capacity = int.Parse(arg("--capacity", "100000")),
             BatchSize = int.Parse(arg("--batch-size", "5000")),
+            WriterCount = int.Parse(arg("--writers", "2")),
             FlushInterval = TimeSpan.FromSeconds(1)
         };
 
         IApiLogRepository repository = connection.Length == 0 ? new NoOpRepository() : new SqlApiLogRepository(connection);
         Console.WriteLine($"db mode: target {rate:N0} logs/s for {duration.TotalSeconds}s, body {bodySize} chars, " +
-                          $"batch {options.BatchSize:N0}, capacity {options.Capacity:N0}, " +
+                          $"batch {options.BatchSize:N0}, writers {options.WriterCount}, capacity {options.Capacity:N0}, " +
                           (connection.Length == 0 ? "NO database (pipeline only)" : "SQL Server"));
 
         var channel = Channel.CreateBounded<ApiLog>(new BoundedChannelOptions(options.Capacity)
         {
             FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = true,
+            SingleReader = options.WriterCount <= 1,
             SingleWriter = true
         });
         var stats = new ApiLogStats();

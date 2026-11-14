@@ -33,6 +33,13 @@ public sealed class ApiLogOptions
     /// </summary>
     public long MaxQueueBytes { get; set; } = 256L * 1024 * 1024;
 
+    /// <summary>
+    /// Writer loops inserting batches in parallel, each on its own connection. More writers raise
+    /// throughput when SQL Server has headroom, and a batch that is retrying no longer holds up
+    /// the others. Each writer holds one connection and one batch in memory.
+    /// </summary>
+    public int WriterCount { get; set; } = 2;
+
     /// <summary>Insert when this many logs are collected...</summary>
     public int BatchSize { get; set; } = 1_000;
 
@@ -57,7 +64,7 @@ public sealed class ApiLogStats
     private long _dropped, _inserted, _failed, _batches, _queuedBytes;
     private int _inFlight;
 
-    /// <summary>Logs in the batch currently being inserted.</summary>
+    /// <summary>Logs in batches currently being inserted (all writers).</summary>
     public int InFlight => Volatile.Read(ref _inFlight);
     public long Dropped => Interlocked.Read(ref _dropped);
     public long Inserted => Interlocked.Read(ref _inserted);
@@ -77,7 +84,7 @@ public sealed class ApiLogStats
     /// so the budget also covers the batch being inserted.</summary>
     public void Release(long bytes) => Interlocked.Add(ref _queuedBytes, -bytes);
 
-    public void SetInFlight(int count) => Volatile.Write(ref _inFlight, count);
+    public void AddInFlight(int delta) => Interlocked.Add(ref _inFlight, delta);
     public void OnDropped() => Interlocked.Increment(ref _dropped);
 
     public void OnBatchInserted(int count)

@@ -61,8 +61,12 @@ public sealed class SqlApiLogRepository(string connectionString) : IApiLogReposi
         {
             DestinationTableName = "dbo.ApiLogs",
             BatchSize = 0,          // whole batch in one transaction: all rows or none
-            BulkCopyTimeout = 60,
-            EnableStreaming = true  // stream large bodies instead of buffering each row
+            BulkCopyTimeout = 60
+            // EnableStreaming stays off. Streaming sends every nvarchar(max) value as separate async
+            // chunks; under HTTP load each chunk waits for a busy thread-pool thread, so one batch took
+            // 44 s while SQL Server sat in ASYNC_NETWORK_IO holding its locks and blocking the other
+            // writers. It only helps when the source is itself a streaming database reader; our rows
+            // are already in memory.
         };
         foreach (var column in ApiLogDataReader.Columns)
             bulkCopy.ColumnMappings.Add(column, column); // Id is identity, skipped

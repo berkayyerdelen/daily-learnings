@@ -1,6 +1,16 @@
 IF DB_ID(N'api_logging') IS NULL CREATE DATABASE api_logging;
 GO
+
+-- Readers (reports, Rider, SELECT COUNT(*)) see the last committed rows instead of waiting for
+-- in-progress bulk inserts, and never block them. Without this, one slow insert also blocks every
+-- query on the table.
+ALTER DATABASE api_logging SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;
+GO
+
 USE api_logging;
+GO
+
+DROP TABLE IF EXISTS dbo.ApiLogs;
 GO
 
 CREATE TABLE dbo.ApiLogs (

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Channels;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -13,13 +14,21 @@ namespace ApiLogging.Api.Logging;
 /// Captures the request/response and puts it on the channel. No database work happens here:
 /// the cost per request is building one record and a non-blocking TryWrite.
 /// </summary>
-public sealed class ApiLogFilter(ChannelWriter<ApiLog> writer, IOptions<ApiLogOptions> options) : IAsyncActionFilter
+public sealed class ApiLogFilter(
+    ChannelWriter<ApiLog> writer,
+    ApiLogStats stats,
+    IOptions<ApiLogOptions> options,
+    ILogger<ApiLogFilter> logger) : IAsyncActionFilter
 {
     // Run before [ApiController]'s model validation filter so automatic 400s are logged too.
     public const int Order = int.MinValue;
 
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private readonly int _maxBodyLength = options.Value.MaxBodyLength;
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
+    {
+        ReferenceHandler = ReferenceHandler.IgnoreCycles // a cyclic model must not fail the request
+    };
+
+    private readonly long _maxQueueBytes = options.Value.MaxQueueBytes;
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
@@ -31,10 +40,24 @@ public sealed class ApiLogFilter(ChannelWriter<ApiLog> writer, IOptions<ApiLogOp
 
         var start = Stopwatch.GetTimestamp();
         // The request stream is already read by model binding, so log the bound [FromBody] model.
+        // Serialize now: the action may change the object.
         var requestBody = Serialize(GetBodyArgument(context));
 
         var executed = await next();
 
+        try
+        {
+            Enqueue(context, executed, start, requestBody);
+        }
+        catch (Exception ex)
+        {
+            // Logging is a side concern: it must never change the outcome of the request.
+            logger.LogWarning(ex, "Failed to capture API log");
+        }
+    }
+
+    private void Enqueue(ActionExecutingContext context, ActionExecutedContext executed, long start, string? requestBody)
+    {
         var failed = executed.Exception is not null && !executed.ExceptionHandled;
         var request = context.HttpContext.Request;
 
@@ -48,11 +71,20 @@ public sealed class ApiLogFilter(ChannelWriter<ApiLog> writer, IOptions<ApiLogOp
             DurationMs: (long)Stopwatch.GetElapsedTime(start).TotalMilliseconds,
             RequestBody: requestBody,
             ResponseBody: failed ? null : Serialize((executed.Result as ObjectResult)?.Value),
-            Exception: failed ? Truncate(executed.Exception!.ToString()) : null);
+            Exception: failed ? executed.Exception!.ToString() : null);
 
-        // Never blocks. If the queue is full (database slow/down) the log is dropped:
-        // logging must not slow down or break the API.
-        writer.TryWrite(log);
+        // Never blocks. If the queue is full by count or by memory (database slow/down), the log
+        // is dropped: logging must not slow down or break the API, or grow memory without limit.
+        if (stats.TryReserve(log.ApproximateBytes, _maxQueueBytes))
+        {
+            if (writer.TryWrite(log))
+            {
+                stats.OnEnqueued();
+                return;
+            }
+            stats.Release(log.ApproximateBytes);
+        }
+        stats.OnDropped();
     }
 
     private static object? GetBodyArgument(ActionExecutingContext context)
@@ -69,9 +101,30 @@ public sealed class ApiLogFilter(ChannelWriter<ApiLog> writer, IOptions<ApiLogOp
             ? code
             : executed.HttpContext.Response.StatusCode;
 
-    private string? Serialize(object? value) =>
-        value is null ? null : Truncate(JsonSerializer.Serialize(value, value.GetType(), Json));
+    private string? Serialize(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                return null;
+            // Lazy sequences: serializing would run the query (e.g. EF) a second time, or block
+            // on an async stream. MVC streams these to the client; we log a placeholder.
+            case IQueryable:
+            case not null when IsAsyncEnumerable(value.GetType()):
+                return $"<not logged: {value.GetType().Name} is not materialized>";
+        }
 
-    private string Truncate(string value) =>
-        value.Length <= _maxBodyLength ? value : value[.._maxBodyLength];
+        try
+        {
+            return JsonSerializer.Serialize(value, value.GetType(), Json);
+        }
+        catch (Exception ex) when (ex is NotSupportedException or JsonException or InvalidOperationException)
+        {
+            logger.LogDebug(ex, "Could not serialize {Type} for API log", value.GetType());
+            return $"<not logged: {value.GetType().Name} could not be serialized>";
+        }
+    }
+
+    private static bool IsAsyncEnumerable(Type type) =>
+        type.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>));
 }

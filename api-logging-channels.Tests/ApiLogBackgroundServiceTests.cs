@@ -11,7 +11,7 @@ public sealed class ApiLogBackgroundServiceTests
     private readonly Channel<ApiLog> _channel = Channel.CreateBounded<ApiLog>(1_000);
 
     private ApiLogBackgroundService Create(int batchSize, TimeSpan flushInterval) => new(
-        _channel.Reader, _repository,
+        _channel.Reader, _repository, new ApiLogStats(),
         Options.Create(new ApiLogOptions { BatchSize = batchSize, FlushInterval = flushInterval }),
         NullLogger<ApiLogBackgroundService>.Instance);
 

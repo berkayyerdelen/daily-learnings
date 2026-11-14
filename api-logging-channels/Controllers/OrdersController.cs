@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.ComponentModel.DataAnnotations;
 using ApiLogging.Api.Logging;
 using Microsoft.AspNetCore.Mvc;
@@ -8,7 +7,8 @@ namespace ApiLogging.Api.Controllers;
 public sealed record CreateOrderRequest(
     [Required] string CustomerId,
     [Range(0.01, 1_000_000)] decimal Amount,
-    [Required] string CardNumber);
+    [Required] string CardNumber,
+    string? Notes = null);
 
 public sealed record OrderResponse(Guid Id, string CustomerId, decimal Amount, DateTimeOffset CreatedAt);
 
@@ -18,20 +18,17 @@ public sealed record LoginRequest(string UserName, string Password);
 [Route("api/orders")]
 public sealed class OrdersController : ControllerBase
 {
-    // Demo storage only; the point of this project is the logging pipeline.
-    private static readonly ConcurrentDictionary<Guid, OrderResponse> Orders = new();
-
+    // No storage on purpose: the point of this project is the logging pipeline, and a demo that
+    // keeps every order in a static dictionary would itself leak memory under a load test.
     [HttpPost]
     public ActionResult<OrderResponse> Create(CreateOrderRequest request)
     {
         var order = new OrderResponse(Guid.NewGuid(), request.CustomerId, request.Amount, DateTimeOffset.UtcNow);
-        Orders[order.Id] = order;
         return CreatedAtAction(nameof(Get), new { id = order.Id }, order);
     }
 
     [HttpGet("{id:guid}")]
-    public ActionResult<OrderResponse> Get(Guid id) =>
-        Orders.TryGetValue(id, out var order) ? order : NotFound();
+    public ActionResult<OrderResponse> Get(Guid id) => NotFound();
 
     [HttpGet("boom")]
     public IActionResult Boom() => throw new InvalidOperationException("Simulated failure");

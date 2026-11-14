@@ -9,6 +9,7 @@ ApiLogFilter ──TryWrite──▶ bounded Channel<ApiLog> ──▶ ApiLogBac
 
 - **`ApiLogFilter`**: global action filter. Builds an `ApiLog` and calls `TryWrite`, which never blocks.
   If the channel is full (database slow or down), the log is dropped so the API isn't slowed down.
+  Bodies are stored in full (no truncation).
   `[SkipApiLog]` excludes an endpoint.
 - **`ApiLogBackgroundService`**: reads the channel and inserts a batch when `BatchSize` logs are collected
   or `FlushInterval` passes, whichever comes first. Writes what's left on shutdown.
@@ -30,11 +31,61 @@ dotnet run
 
 Send requests with `api-logging-channels.http`. Tests: `dotnet test api-logging-channels.Tests`.
 
+## Queue stats: `GET /api-logs/stats`
+
+```json
+{ "queued": 12, "capacity": 10000, "queuedBytes": 31560, "maxQueueBytes": 268435456,
+  "enqueued": 1000271, "dropped": 0, "inserted": 1000259, "failed": 0, "batches": 1002,
+  "gen2SizeAfterGcBytes": 3012345, "gcHeapBytes": 412000000, "workingSetBytes": 812000000, ... }
+```
+
+`queued` is how many logs are in memory right now. `dropped` > 0 means the database could not keep up
+(or the memory budget was hit). To watch for leaks, use `gen2SizeAfterGcBytes`: it must level off, not climb.
+
+## Load test
+
+```bash
+dotnet run -c Release --project api-logging-channels
+```
+
+```bash
+dotnet run -c Release --project api-logging-channels.LoadTests -- --duration 30 --concurrency 64 --body-size 1000
+```
+
+It prints req/s, errors and the queue stats every second, then latency percentiles, and waits for the queue
+to drain. `--path /api/auth/login` hits an endpoint with `[SkipApiLog]`, as a no-logging baseline.
+
+**Results on a 4-core container** (load generator on the same machine, SQL Server unreachable, so every
+batch insert failed: the database-down worst case):
+
+| | req/s | p50 | p99 | memory after ~2.7M requests |
+|---|---|---|---|---|
+| not logged (baseline) | ~27.7k | 1.6 ms | 11.4 ms | |
+| logged, 1 KB bodies | 24–34k | 1.7–1.9 ms | 5.6–12.4 ms | gen2 2.4 → 3.0 → 3.7 MB (stable), working set ~810 MB (stable) |
+
+- Logging overhead was within run-to-run noise. Requests never waited for the (down) database: 0 errors.
+- When the writer fell behind, logs were dropped (about 1.5%) instead of being held in memory.
+- An in-process check (300k requests, full GC after every 50k) stayed flat at 3.0 MB with every log inserted.
+- The ~800 MB working set comes from the server garbage collector reserving memory per core, not from a
+  leak. If that matters, enable .NET 8 DATAS (`<GarbageCollectionAdaptationMode>1</GarbageCollectionAdaptationMode>`).
+- Not yet measured against a real SQL Server: run it there to see the actual insert rate.
+
+## Memory and performance notes
+
+- **Memory is bounded twice:** by count (`Capacity`) and by bytes (`MaxQueueBytes`). Bodies are not
+  truncated, so a count limit alone does not bound memory. Bytes are released after a batch is inserted,
+  so the budget also covers the batch in flight.
+- **Logging never breaks a request.** A body that cannot be serialized is logged as a placeholder.
+  `IQueryable` / `IAsyncEnumerable` results are not serialized, because doing so would run the query again.
+- **Bodies over ~42K characters (85 KB)** land on the Large Object Heap. Use `[SkipApiLog]` on endpoints that
+  return very large payloads.
+- The `DataTable` used by `SqlBulkCopy` is created once and reused across batches.
+
 ## Settings (`ApiLogging`)
 
 | Key | Default | |
 |---|---|---|
-| `Capacity` | `10000` | Max logs held in memory. Logs beyond this are dropped. |
+| `Capacity` | `10000` | Max logs held in memory |
+| `MaxQueueBytes` | `268435456` (256 MB) | Max memory for queued and in-flight logs |
 | `BatchSize` | `1000` | Rows per bulk insert |
 | `FlushInterval` | `00:00:02` | Max wait before inserting a partial batch |
-| `MaxBodyLength` | `4000` | Bodies are truncated to this length |

@@ -80,6 +80,15 @@ batch insert failed: the database-down worst case):
 - **Bodies over ~42K characters (85 KB)** land on the Large Object Heap. Use `[SkipApiLog]` on endpoints that
   return very large payloads.
 - The `DataTable` used by `SqlBulkCopy` is created once and reused across batches.
+- **Retries only for temporary errors:** timeouts, lost connections, deadlock victim (1205), lock timeout,
+  and Azure SQL failover/throttling codes. Permanent errors (schema, permissions, a missing database) are
+  not retried, so they don't hold up newer batches. Each batch is one transaction, so a retry after a
+  deadlock or a lost connection can't create duplicates. The exception is a timeout right at commit time,
+  which in rare cases can write a batch twice.
+- **Deadlocks:** our inserts only append to the end of an `IDENTITY` clustered index, so they don't deadlock
+  with each other. They become possible if something else uses the table (a retention job deleting in
+  large chunks, reports at `REPEATABLE READ`/`SERIALIZABLE`, extra indexes or triggers), which is why 1205
+  is retried.
 
 ## Settings (`ApiLogging`)
 
@@ -89,3 +98,5 @@ batch insert failed: the database-down worst case):
 | `MaxQueueBytes` | `268435456` (256 MB) | Max memory for queued and in-flight logs |
 | `BatchSize` | `1000` | Rows per bulk insert |
 | `FlushInterval` | `00:00:02` | Max wait before inserting a partial batch |
+| `MaxRetries` | `3` | Extra attempts for a batch that failed with a temporary error |
+| `RetryBaseDelay` | `00:00:00.200` | First retry delay; doubles each attempt with random jitter, capped at 5 s |

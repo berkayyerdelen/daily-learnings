@@ -7,6 +7,9 @@ namespace ApiLogging.Api.Logging;
 /// Reads logs from the channel and inserts them in batches: when BatchSize logs are
 /// collected, or when FlushInterval has passed, whichever comes first. On shutdown it
 /// writes whatever is left in the channel.
+///
+/// A batch that fails with a temporary error is retried with exponential backoff and jitter;
+/// other errors, or running out of retries, drop the batch so newer logs are not held up.
 /// </summary>
 public sealed class ApiLogBackgroundService(
     ChannelReader<ApiLog> reader,
@@ -15,6 +18,8 @@ public sealed class ApiLogBackgroundService(
     IOptions<ApiLogOptions> options,
     ILogger<ApiLogBackgroundService> logger) : BackgroundService
 {
+    private static readonly TimeSpan MaxRetryDelay = TimeSpan.FromSeconds(5);
+
     private readonly ApiLogOptions _options = options.Value;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -71,14 +76,30 @@ public sealed class ApiLogBackgroundService(
 
         try
         {
-            // Not tied to stoppingToken, so a batch in progress at shutdown still completes.
-            await repository.InsertBatchAsync(batch, CancellationToken.None);
-            stats.OnBatchInserted(batch.Count);
-        }
-        catch (Exception ex)
-        {
-            stats.OnBatchFailed(batch.Count);
-            logger.LogError(ex, "Failed to insert {Count} API logs", batch.Count);
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    // Not tied to stoppingToken, so a batch in progress at shutdown still completes.
+                    await repository.InsertBatchAsync(batch, CancellationToken.None);
+                    stats.OnBatchInserted(batch.Count);
+                    return;
+                }
+                catch (Exception ex) when (attempt <= _options.MaxRetries && repository.IsTransient(ex))
+                {
+                    var delay = RetryDelay(attempt);
+                    logger.LogWarning(ex,
+                        "Inserting {Count} API logs failed with a temporary error (attempt {Attempt} of {Total}); retrying in {Delay} ms",
+                        batch.Count, attempt, _options.MaxRetries + 1, (int)delay.TotalMilliseconds);
+                    await Task.Delay(delay);
+                }
+                catch (Exception ex)
+                {
+                    stats.OnBatchFailed(batch.Count);
+                    logger.LogError(ex, "Dropping {Count} API logs after {Attempts} attempt(s)", batch.Count, attempt);
+                    return;
+                }
+            }
         }
         finally
         {
@@ -87,5 +108,16 @@ public sealed class ApiLogBackgroundService(
             stats.Release(bytes);
             batch.Clear(); // keeps the list's capacity: no new allocation per batch
         }
+    }
+
+    /// <summary>
+    /// Exponential backoff with full jitter: random delay in [0, base * 2^(attempt-1)], capped.
+    /// The randomness stops every API instance from retrying at the same moment after a failover.
+    /// </summary>
+    private TimeSpan RetryDelay(int attempt)
+    {
+        var ceiling = Math.Min(MaxRetryDelay.TotalMilliseconds,
+            _options.RetryBaseDelay.TotalMilliseconds * Math.Pow(2, attempt - 1));
+        return TimeSpan.FromMilliseconds(Random.Shared.NextDouble() * ceiling);
     }
 }

@@ -38,6 +38,15 @@ public sealed class ApiLogOptions
 
     /// <summary>...or when this much time has passed, whichever comes first.</summary>
     public TimeSpan FlushInterval { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Extra attempts for a batch that failed with a temporary error (timeout, lost connection,
+    /// deadlock, failover). After that the batch is dropped and counted as failed.
+    /// </summary>
+    public int MaxRetries { get; set; } = 3;
+
+    /// <summary>Backoff before the first retry; doubles each attempt (with jitter), capped at 5 s.</summary>
+    public TimeSpan RetryBaseDelay { get; set; } = TimeSpan.FromMilliseconds(200);
 }
 
 /// <summary>Counters for the logging pipeline, exposed at GET /api-logs/stats.</summary>

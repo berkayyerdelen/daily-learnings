@@ -103,5 +103,6 @@ internal static class DbLoadTest
     private sealed class NoOpRepository : IApiLogRepository
     {
         public Task InsertBatchAsync(IReadOnlyList<ApiLog> logs, CancellationToken cancellationToken) => Task.CompletedTask;
+        public bool IsTransient(Exception exception) => false;
     }
 }

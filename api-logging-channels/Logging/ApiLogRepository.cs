@@ -5,7 +5,11 @@ namespace ApiLogging.Api.Logging;
 
 public interface IApiLogRepository
 {
+    /// <summary>Inserts all logs atomically: either the whole batch is stored or none of it.</summary>
     Task InsertBatchAsync(IReadOnlyList<ApiLog> logs, CancellationToken cancellationToken);
+
+    /// <summary>True if the failure is temporary and the same batch may succeed on retry.</summary>
+    bool IsTransient(Exception exception);
 }
 
 /// <summary>
@@ -18,7 +22,36 @@ public interface IApiLogRepository
 /// </summary>
 public sealed class SqlApiLogRepository(string connectionString) : IApiLogRepository
 {
+    /// <summary>
+    /// SQL Server errors worth retrying: the same batch can succeed a moment later.
+    /// Anything else (bad schema, permissions, a row that does not fit a column, a missing
+    /// database) fails the same way every time, so retrying only delays the next batch.
+    /// </summary>
+    private static readonly HashSet<int> TransientErrorNumbers =
+    [
+        -2,     // client timeout
+        1205,   // chosen as deadlock victim (whole batch rolled back, so retry is safe)
+        1222,   // lock request timeout
+        233,    // connection closed by the server
+        64,     // connection lost
+        10053,  // connection aborted by the host
+        10054,  // connection reset by peer
+        10060,  // connection attempt timed out
+        10928, 10929, // Azure SQL: resource limits reached
+        40197,  // Azure SQL: service error while processing (e.g. during failover)
+        40501,  // Azure SQL: service busy
+        40613,  // Azure SQL: database unavailable (failover in progress)
+        49918, 49919, 49920 // Azure SQL: not enough resources / too many operations
+    ];
+
     private readonly DataTable _table = CreateTable();
+
+    public bool IsTransient(Exception exception) => exception switch
+    {
+        SqlException sql => sql.Errors.Cast<SqlError>().Any(e => TransientErrorNumbers.Contains(e.Number)),
+        TimeoutException => true,
+        _ => false
+    };
 
     public async Task InsertBatchAsync(IReadOnlyList<ApiLog> logs, CancellationToken cancellationToken)
     {

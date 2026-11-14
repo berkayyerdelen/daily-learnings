@@ -34,6 +34,16 @@ public sealed class TestController : ControllerBase
         return Ok(query);
     }
 
+    [HttpGet("stream")]
+    public async IAsyncEnumerable<int> Stream()
+    {
+        for (var i = 0; i < 3; i++)
+        {
+            await Task.Yield();
+            yield return i;
+        }
+    }
+
     [HttpGet("big")]
     public IActionResult Big([FromQuery] int size) => Ok(new string('x', size));
 }

@@ -52,9 +52,13 @@ public sealed class ApiLogOptions
 /// <summary>Counters for the logging pipeline, exposed at GET /api-logs/stats.</summary>
 public sealed class ApiLogStats
 {
-    private long _enqueued, _dropped, _inserted, _failed, _batches, _queuedBytes;
+    // No "enqueued" counter: it would be a second contended atomic write on every request.
+    // Enqueued = inserted + failed + queued + in flight (see MapApiLogStats).
+    private long _dropped, _inserted, _failed, _batches, _queuedBytes;
+    private int _inFlight;
 
-    public long Enqueued => Interlocked.Read(ref _enqueued);
+    /// <summary>Logs in the batch currently being inserted.</summary>
+    public int InFlight => Volatile.Read(ref _inFlight);
     public long Dropped => Interlocked.Read(ref _dropped);
     public long Inserted => Interlocked.Read(ref _inserted);
     public long Failed => Interlocked.Read(ref _failed);
@@ -73,7 +77,7 @@ public sealed class ApiLogStats
     /// so the budget also covers the batch being inserted.</summary>
     public void Release(long bytes) => Interlocked.Add(ref _queuedBytes, -bytes);
 
-    public void OnEnqueued() => Interlocked.Increment(ref _enqueued);
+    public void SetInFlight(int count) => Volatile.Write(ref _inFlight, count);
     public void OnDropped() => Interlocked.Increment(ref _dropped);
 
     public void OnBatchInserted(int count)

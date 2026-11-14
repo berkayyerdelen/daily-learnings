@@ -74,6 +74,7 @@ public sealed class ApiLogBackgroundService(
     {
         if (batch.Count == 0) return;
 
+        stats.SetInFlight(batch.Count);
         try
         {
             for (var attempt = 1; ; attempt++)
@@ -106,6 +107,7 @@ public sealed class ApiLogBackgroundService(
             long bytes = 0;
             foreach (var log in batch) bytes += log.ApproximateBytes;
             stats.Release(bytes);
+            stats.SetInFlight(0);
             batch.Clear(); // keeps the list's capacity: no new allocation per batch
         }
     }

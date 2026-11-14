@@ -70,6 +70,25 @@ batch insert failed: the database-down worst case):
   leak. If that matters, enable .NET 8 DATAS (`<GarbageCollectionAdaptationMode>1</GarbageCollectionAdaptationMode>`).
 - Not yet measured against a real SQL Server: run it there to see the actual insert rate.
 
+## Filter cost per request (BenchmarkDotNet)
+
+```bash
+dotnet run -c Release --project api-logging-channels.Benchmarks
+```
+
+Time the filter adds to one request (with logging minus without), measured on this 4-core container:
+
+| Response | Re-serializing the response for the log | Copying the bytes MVC wrote (current) |
+|---|---|---|
+| List of 50 orders, small bodies | 22.3 µs | **5.7 µs** |
+| List of 50 orders, 10K-char bodies | 44.4 µs | **15.0 µs** |
+| Single object, 100-char body | 2.8 µs | 3.1 µs |
+| Single object, 10K-char body | 11.9 µs | 11.1 µs |
+
+The filter copies the response bytes while MVC writes them, so the response object is serialized
+once, not twice. The win grows with how expensive a response is to serialize. Allocations are about
+the same either way: they're dominated by the request/response text that is stored in full.
+
 ## Memory and performance notes
 
 - **Memory is bounded twice:** by count (`Capacity`) and by bytes (`MaxQueueBytes`). Bodies are not
@@ -80,6 +99,12 @@ batch insert failed: the database-down worst case):
 - **Bodies over ~42K characters (85 KB)** land on the Large Object Heap. Use `[SkipApiLog]` on endpoints that
   return very large payloads.
 - The `DataTable` used by `SqlBulkCopy` is created once and reused across batches.
+- The logged response is exactly what the client received, including `ProblemDetails`, plain-text
+  results and the final status code. Files and `IAsyncEnumerable` streams are not copied, so they're never
+  buffered in memory just for a log.
+- Per-request lookups that never change (body parameter per action, `IAsyncEnumerable` check per type) are
+  cached. `[SkipApiLog]` is checked through ASP.NET Core's cached endpoint metadata. The filter updates one
+  shared counter per request (the memory budget); `enqueued` is derived.
 - **Retries only for temporary errors:** timeouts, lost connections, deadlock victim (1205), lock timeout,
   and Azure SQL failover/throttling codes. Permanent errors (schema, permissions, a missing database) are
   not retried, so they don't hold up newer batches. Each batch is one transaction, so a retry after a

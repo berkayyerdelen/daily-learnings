@@ -46,7 +46,8 @@ public static class ApiLogServiceCollectionExtensions
                 capacity = options.Value.Capacity,
                 queuedBytes = stats.QueuedBytes, // approx. memory held by queued + in-flight logs
                 maxQueueBytes = options.Value.MaxQueueBytes,
-                enqueued = stats.Enqueued,      // accepted by the filter
+                // accepted by the filter (derived, so the filter has one less counter to update)
+                enqueued = stats.Inserted + stats.Failed + reader.Count + stats.InFlight,
                 dropped = stats.Dropped,        // rejected because the queue was full
                 inserted = stats.Inserted,      // written to the database
                 failed = stats.Failed,          // lost because a batch insert failed

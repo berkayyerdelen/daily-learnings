@@ -1,53 +1,127 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Channels;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.Extensions.Options;
 
 namespace ApiLogging.Api.Logging;
 
 /// <summary>
-/// Captures the request/response and puts it on the channel. No database work happens here:
-/// the cost per request is building one record and a non-blocking TryWrite.
+/// Captures the request/response and puts it on the channel. No database work happens here.
+///
+/// It is both an action filter and a result filter:
+///  * action stage: serializes the bound [FromBody] model (the request stream has already been
+///    read by model binding) before the action can change it;
+///  * result stage: copies the response bytes MVC writes while executing the result. The
+///    response object is serialized once, by MVC, instead of a second time just for the log,
+///    and the log contains exactly what the client received.
 /// </summary>
 public sealed class ApiLogFilter(
     ChannelWriter<ApiLog> writer,
     ApiLogStats stats,
     IOptions<ApiLogOptions> options,
-    ILogger<ApiLogFilter> logger) : IAsyncActionFilter
+    ILogger<ApiLogFilter> logger) : IAsyncActionFilter, IAsyncResultFilter
 {
-    // Run before [ApiController]'s model validation filter so automatic 400s are logged too.
+    // Outermost: before [ApiController]'s model validation filter (so automatic 400s are logged)
+    // and around every other result filter (so the copied bytes are the final response).
     public const int Order = int.MinValue;
 
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
-    {
-        ReferenceHandler = ReferenceHandler.IgnoreCycles // a cyclic model must not fail the request
-    };
+    private static readonly object CaptureKey = new();
+
+    // No ReferenceHandler: tracking references costs a dictionary lookup per object on every
+    // request. A cyclic model instead hits MaxDepth, throws, and is logged as a placeholder.
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    // Per-type and per-action answers never change, so compute them once.
+    private static readonly ConcurrentDictionary<Type, bool> AsyncEnumerableTypes = new();
+    private static readonly ConcurrentDictionary<string, string?> BodyParameterNames = new();
 
     private readonly long _maxQueueBytes = options.Value.MaxQueueBytes;
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        if (context.ActionDescriptor.EndpointMetadata.Any(m => m is SkipApiLogAttribute))
+        if (IsSkipped(context.HttpContext))
         {
             await next();
             return;
         }
 
         var start = Stopwatch.GetTimestamp();
-        // The request stream is already read by model binding, so log the bound [FromBody] model.
-        // Serialize now: the action may change the object.
-        var requestBody = Serialize(GetBodyArgument(context));
+        var requestBody = SerializeRequestBody(context);
 
         var executed = await next();
 
+        if (executed.Exception is not null && !executed.ExceptionHandled)
+        {
+            // Result filters do not run for an unhandled exception, so log it now.
+            TryEnqueue(context.HttpContext, start, requestBody, 500, null, executed.Exception.ToString());
+            return;
+        }
+
+        context.HttpContext.Items[CaptureKey] = new Capture(start, requestBody);
+    }
+
+    public async Task OnResultExecutionAsync(ResultExecutingContext context, ResultExecutionDelegate next)
+    {
+        var http = context.HttpContext;
+        if (!http.Items.Remove(CaptureKey, out var value) || value is not Capture capture)
+        {
+            await next(); // skipped, or the action stage did not run
+            return;
+        }
+
+        var tee = ShouldCopyBody(context.Result) ? new TeeStream(http.Response.Body) : null;
+        if (tee is not null) http.Response.Body = tee;
+
         try
         {
-            Enqueue(context, executed, start, requestBody);
+            var executed = await next();
+
+            var failed = executed.Exception is not null && !executed.ExceptionHandled;
+            TryEnqueue(http, capture.Start, capture.RequestBody,
+                statusCode: failed ? 500 : http.Response.StatusCode,
+                responseBody: failed ? null : tee?.GetText() ?? Placeholder(context.Result),
+                exception: failed ? executed.Exception!.ToString() : null);
+        }
+        finally
+        {
+            if (tee is not null)
+            {
+                http.Response.Body = tee.Inner;
+                tee.ReleaseBuffer();
+            }
+        }
+    }
+
+    private void TryEnqueue(HttpContext http, long start, string? requestBody, int statusCode,
+        string? responseBody, string? exception)
+    {
+        try
+        {
+            var request = http.Request;
+            var log = new ApiLog(
+                CreatedAt: DateTime.UtcNow,
+                TraceId: Activity.Current?.TraceId.ToString() ?? http.TraceIdentifier,
+                Method: request.Method,
+                Path: request.Path,
+                QueryString: request.QueryString.HasValue ? request.QueryString.Value : null,
+                StatusCode: statusCode,
+                DurationMs: (long)Stopwatch.GetElapsedTime(start).TotalMilliseconds,
+                RequestBody: requestBody,
+                ResponseBody: responseBody,
+                Exception: exception);
+
+            // Never blocks. If the queue is full by count or by memory (database slow/down), the
+            // log is dropped: logging must not slow down or break the API, or grow memory without limit.
+            if (stats.TryReserve(log.ApproximateBytes, _maxQueueBytes))
+            {
+                if (writer.TryWrite(log)) return;
+                stats.Release(log.ApproximateBytes);
+            }
+            stats.OnDropped();
         }
         catch (Exception ex)
         {
@@ -56,63 +130,22 @@ public sealed class ApiLogFilter(
         }
     }
 
-    private void Enqueue(ActionExecutingContext context, ActionExecutedContext executed, long start, string? requestBody)
+    // Endpoint metadata lookups by type are cached by ASP.NET Core and do not allocate.
+    private static bool IsSkipped(HttpContext http) =>
+        http.GetEndpoint()?.Metadata.GetMetadata<SkipApiLogAttribute>() is not null;
+
+    private string? SerializeRequestBody(ActionExecutingContext context)
     {
-        var failed = executed.Exception is not null && !executed.ExceptionHandled;
-        var request = context.HttpContext.Request;
-
-        var log = new ApiLog(
-            CreatedAt: DateTime.UtcNow,
-            TraceId: Activity.Current?.TraceId.ToString() ?? context.HttpContext.TraceIdentifier,
-            Method: request.Method,
-            Path: request.Path,
-            QueryString: request.QueryString.HasValue ? request.QueryString.Value : null,
-            StatusCode: failed ? 500 : GetStatusCode(executed),
-            DurationMs: (long)Stopwatch.GetElapsedTime(start).TotalMilliseconds,
-            RequestBody: requestBody,
-            ResponseBody: failed ? null : Serialize((executed.Result as ObjectResult)?.Value),
-            Exception: failed ? executed.Exception!.ToString() : null);
-
-        // Never blocks. If the queue is full by count or by memory (database slow/down), the log
-        // is dropped: logging must not slow down or break the API, or grow memory without limit.
-        if (stats.TryReserve(log.ApproximateBytes, _maxQueueBytes))
+        var name = BodyParameterNames.GetOrAdd(context.ActionDescriptor.Id, static (_, descriptor) =>
         {
-            if (writer.TryWrite(log))
-            {
-                stats.OnEnqueued();
-                return;
-            }
-            stats.Release(log.ApproximateBytes);
-        }
-        stats.OnDropped();
-    }
+            foreach (var p in descriptor.Parameters)
+                if (p.BindingInfo?.BindingSource == BindingSource.Body)
+                    return p.Name;
+            return null;
+        }, context.ActionDescriptor);
 
-    private static object? GetBodyArgument(ActionExecutingContext context)
-    {
-        foreach (var p in context.ActionDescriptor.Parameters)
-            if (p.BindingInfo?.BindingSource == BindingSource.Body &&
-                context.ActionArguments.TryGetValue(p.Name, out var value))
-                return value;
-        return null;
-    }
-
-    private static int GetStatusCode(ActionExecutedContext executed) =>
-        executed.Result is IStatusCodeActionResult { StatusCode: { } code }
-            ? code
-            : executed.HttpContext.Response.StatusCode;
-
-    private string? Serialize(object? value)
-    {
-        switch (value)
-        {
-            case null:
-                return null;
-            // Lazy sequences: serializing would run the query (e.g. EF) a second time, or block
-            // on an async stream. MVC streams these to the client; we log a placeholder.
-            case IQueryable:
-            case not null when IsAsyncEnumerable(value.GetType()):
-                return $"<not logged: {value.GetType().Name} is not materialized>";
-        }
+        if (name is null || !context.ActionArguments.TryGetValue(name, out var value) || value is null)
+            return null;
 
         try
         {
@@ -125,6 +158,23 @@ public sealed class ApiLogFilter(
         }
     }
 
+    // Copy only bodies MVC builds from a value. Files and streamed sequences can be arbitrarily
+    // large or long-lived; buffering them in memory just for a log would be a liability.
+    private static bool ShouldCopyBody(IActionResult result) => result switch
+    {
+        ObjectResult { Value: { } v } => !IsAsyncEnumerable(v.GetType()),
+        JsonResult or ContentResult => true,
+        _ => false
+    };
+
+    private static string? Placeholder(IActionResult result) =>
+        result is ObjectResult { Value: { } v } && IsAsyncEnumerable(v.GetType())
+            ? $"<not logged: {v.GetType().Name} is streamed>"
+            : null;
+
     private static bool IsAsyncEnumerable(Type type) =>
-        type.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>));
+        AsyncEnumerableTypes.GetOrAdd(type, static t => t.GetInterfaces()
+            .Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IAsyncEnumerable<>)));
+
+    private sealed record Capture(long Start, string? RequestBody);
 }

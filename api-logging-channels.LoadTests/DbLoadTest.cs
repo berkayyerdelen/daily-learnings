@@ -63,7 +63,7 @@ internal static class DbLoadTest
                     // Same admission rules as ApiLogFilter: byte budget, then non-blocking TryWrite.
                     if (stats.TryReserve(log.ApproximateBytes, options.MaxQueueBytes))
                     {
-                        if (channel.Writer.TryWrite(log)) { stats.OnEnqueued(); continue; }
+                        if (channel.Writer.TryWrite(log)) continue;
                         stats.Release(log.ApproximateBytes);
                     }
                     stats.OnDropped();
@@ -91,7 +91,7 @@ internal static class DbLoadTest
         var total = clock.Elapsed.TotalSeconds;
 
         Console.WriteLine();
-        Console.WriteLine($"Produced {produced:N0}  enqueued {stats.Enqueued:N0}  dropped {stats.Dropped:N0} " +
+        Console.WriteLine($"Produced {produced:N0}  enqueued {stats.Inserted + stats.Failed:N0}  dropped {stats.Dropped:N0} " +
                           $"({100.0 * stats.Dropped / Math.Max(1, produced):F1}%)  inserted {stats.Inserted:N0}  failed {stats.Failed:N0}");
         Console.WriteLine($"Sustained insert rate: {stats.Inserted / total:N0} rows/s over {total:F1}s (including drain)");
         Console.WriteLine(stats.Dropped == 0

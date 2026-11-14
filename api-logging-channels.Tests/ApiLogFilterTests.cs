@@ -74,7 +74,8 @@ public sealed class ApiLogFilterTests : IDisposable
         await _client.GetAsync("/test/big?size=100000");
 
         await _repository.WaitForAsync(1);
-        Assert.Equal(100_002, Assert.Single(_repository.Logs).ResponseBody!.Length); // quotes included
+        // Exactly what the client received: MVC writes a string result as text/plain, without quotes.
+        Assert.Equal(new string('x', 100_000), Assert.Single(_repository.Logs).ResponseBody);
     }
 
     [Fact]
@@ -93,7 +94,18 @@ public sealed class ApiLogFilterTests : IDisposable
 
         await _repository.WaitForAsync(1);
         Assert.Equal(3, TestController.QueryExecutions); // only MVC's enumeration of 3 items
-        Assert.Contains("not materialized", Assert.Single(_repository.Logs).ResponseBody);
+        // The body is copied from what MVC wrote, so the query result is logged without re-running it.
+        Assert.Equal("[0,1,2]", Assert.Single(_repository.Logs).ResponseBody);
+    }
+
+    [Fact]
+    public async Task Streamed_responses_reach_the_client_but_are_not_buffered_for_the_log()
+    {
+        var body = await _client.GetStringAsync("/test/stream");
+        Assert.Equal("[0,1,2]", body);
+
+        await _repository.WaitForAsync(1);
+        Assert.Contains("is streamed", Assert.Single(_repository.Logs).ResponseBody);
     }
 
     [Fact]
@@ -111,8 +123,8 @@ public sealed class ApiLogFilterTests : IDisposable
         await sut._repository.WaitForAsync(2);
         await Task.Delay(150);
         Assert.Equal(0, stats.QueuedBytes);
-        Assert.Equal(stats.Enqueued, sut._repository.Logs.Count);
-        Assert.Equal(3, stats.Enqueued + stats.Dropped);
+        Assert.Equal(stats.Inserted, sut._repository.Logs.Count);
+        Assert.Equal(3, stats.Inserted + stats.Dropped);
     }
 
     public void Dispose()

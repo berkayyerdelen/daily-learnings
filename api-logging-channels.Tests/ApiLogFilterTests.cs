@@ -80,6 +80,18 @@ public sealed class ApiLogFilterTests : IDisposable
     }
 
     [Fact]
+    public async Task Long_paths_are_logged_in_full()
+    {
+        // Longer than the old nvarchar(2048) column: must be stored as-is, never cut.
+        var longPath = "/test/any/" + new string('p', 5_000);
+        var response = await _client.GetAsync(longPath);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await _repository.WaitForAsync(1);
+        Assert.Equal(longPath, Assert.Single(_repository.Logs).Path);
+    }
+
+    [Fact]
     public async Task A_body_that_cannot_be_serialized_does_not_break_the_request()
     {
         var response = await _client.PostAsJsonAsync("/test/cycle", new { name = "a" });

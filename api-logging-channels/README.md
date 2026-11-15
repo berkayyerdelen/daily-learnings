@@ -69,6 +69,9 @@ request by trace id, a full row by id, slowest requests, and error rate per minu
   neither wait for nor block bulk inserts. They may briefly show rows from a batch still being inserted.
 - **Fast without extra indexes:** `Id` only increases, so "latest" queries read the primary key backwards,
   and the rest are limited to a recent `Id` range instead of scanning the whole table.
+- **Client-supplied `Method` and `Path` are unbounded columns** (`varchar(max)` / `nvarchar(max)`), so an unusually
+  long value can't fail a whole bulk insert batch. Tables created with the earlier script (`varchar(10)` /
+  `nvarchar(2048)`): run `db/upgrade_extend_columns.sql` once.
 - **Logs contain full request/response bodies,** which can include personal data or secrets. Restrict who
   can query this table.
 

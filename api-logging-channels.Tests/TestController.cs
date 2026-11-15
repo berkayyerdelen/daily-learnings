@@ -46,6 +46,9 @@ public sealed class TestController : ControllerBase
         }
     }
 
+    [HttpGet("any/{**rest}")]
+    public IActionResult Any(string rest) => Ok(rest.Length);
+
     [HttpGet("big")]
     public IActionResult Big([FromQuery] int size) => Ok(new string('x', size));
 }

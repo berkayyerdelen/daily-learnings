@@ -10,9 +10,12 @@ IF OBJECT_ID(N'dbo.ApiLogs', N'U') IS NULL
 CREATE TABLE dbo.ApiLogs (
     Id           bigint IDENTITY(1,1) PRIMARY KEY,
     CreatedAt    datetime2       NOT NULL,
-    TraceId      varchar(64)     NOT NULL,
-    Method       varchar(10)     NOT NULL,
-    Path         nvarchar(2048)  NOT NULL,
+    TraceId      varchar(64)     NOT NULL,  -- server-generated: always <= 32 chars
+    -- Method and Path come from the client and can be longer than any fixed size (Kestrel allows
+    -- request lines up to 8 KB). A value that doesn't fit would fail the whole bulk insert batch
+    -- permanently, so they are unbounded.
+    Method       varchar(max)    NOT NULL,
+    Path         nvarchar(max)   NOT NULL,
     QueryString  nvarchar(max)   NULL,
     StatusCode   int             NOT NULL,
     DurationMs   bigint          NOT NULL,

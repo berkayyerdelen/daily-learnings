@@ -21,7 +21,7 @@ namespace ApiLogging.Api.Logging;
 /// </summary>
 public sealed class ApiLogFilter(
     ChannelWriter<ApiLog> writer,
-    ApiLogStats stats,
+    ApiLogMemoryBudget budget,
     IOptions<ApiLogOptions> options,
     ILogger<ApiLogFilter> logger) : IAsyncActionFilter, IAsyncResultFilter
 {
@@ -39,7 +39,9 @@ public sealed class ApiLogFilter(
     private static readonly ConcurrentDictionary<Type, bool> AsyncEnumerableTypes = new();
     private static readonly ConcurrentDictionary<string, string?> BodyParameterNames = new();
 
-    private readonly long _maxQueueBytes = options.Value.MaxQueueBytes;
+    private static readonly TimeSpan DropWarningInterval = TimeSpan.FromSeconds(10);
+    private long _lastDropWarning; // Stopwatch timestamp; 0 = never warned
+    private long _droppedSinceWarning;
     private readonly bool _logAllEndpoints = options.Value.LogAllEndpoints;
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
@@ -117,18 +119,34 @@ public sealed class ApiLogFilter(
 
             // Never blocks. If the queue is full by count or by memory (database slow/down), the
             // log is dropped: logging must not slow down or break the API, or grow memory without limit.
-            if (stats.TryReserve(log.ApproximateBytes, _maxQueueBytes))
+            if (budget.TryReserve(log.ApproximateBytes))
             {
                 if (writer.TryWrite(log)) return;
-                stats.Release(log.ApproximateBytes);
+                budget.Release(log.ApproximateBytes);
             }
-            stats.OnDropped();
+            WarnDropped();
         }
         catch (Exception ex)
         {
             // Logging is a side concern: it must never change the outcome of the request.
             logger.LogWarning(ex, "Failed to capture API log");
         }
+    }
+
+    /// <summary>
+    /// Drops are never silent, but one warning per drop would flood the log during an overload,
+    /// so they are reported in aggregate, at most once per <see cref="DropWarningInterval"/>.
+    /// </summary>
+    private void WarnDropped()
+    {
+        var dropped = Interlocked.Increment(ref _droppedSinceWarning);
+        var now = Stopwatch.GetTimestamp();
+        var last = Interlocked.Read(ref _lastDropWarning);
+        if (last != 0 && Stopwatch.GetElapsedTime(last, now) < DropWarningInterval) return;
+        if (Interlocked.CompareExchange(ref _lastDropWarning, now, last) != last) return; // another request warned
+
+        dropped = Interlocked.Exchange(ref _droppedSinceWarning, 0);
+        logger.LogWarning("Dropped {Count} API logs: the queue is full (database too slow or unavailable)", dropped);
     }
 
     // [ApiLog] / [SkipApiLog]: the most specific one wins (action over controller). With neither,

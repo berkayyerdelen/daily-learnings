@@ -10,7 +10,6 @@ var app = builder.Build();
 
 app.UseExceptionHandler();
 app.MapControllers();
-app.MapApiLogStats();
 
 app.Run();
 

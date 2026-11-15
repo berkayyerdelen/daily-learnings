@@ -9,10 +9,10 @@ public sealed class ApiLogBackgroundServiceTests
 {
     private readonly FakeApiLogRepository _repository = new();
     private readonly Channel<ApiLog> _channel = Channel.CreateBounded<ApiLog>(1_000);
-    private readonly ApiLogStats _stats = new();
+    private readonly ApiLogMemoryBudget _budget = new(Options.Create(new ApiLogOptions()));
 
     private ApiLogBackgroundService Create(int batchSize, TimeSpan flushInterval, int maxRetries = 3, int writers = 1) => new(
-        _channel.Reader, _repository, _stats,
+        _channel.Reader, _repository, _budget,
         Options.Create(new ApiLogOptions
         {
             BatchSize = batchSize,
@@ -62,8 +62,7 @@ public sealed class ApiLogBackgroundServiceTests
         await _repository.WaitForAsync(1);
         await service.StopAsync(default);
         Assert.Equal(3, _repository.Attempts);
-        Assert.Equal(1, _stats.Inserted);
-        Assert.Equal(0, _stats.Failed);
+        Assert.Single(_repository.Logs);
     }
 
     [Fact]
@@ -74,7 +73,7 @@ public sealed class ApiLogBackgroundServiceTests
         await service.StartAsync(default);
 
         _channel.Writer.TryWrite(Log(1));
-        await WaitUntil(() => _stats.Failed == 1);
+        await WaitUntil(() => _repository.Attempts == 1);
         _channel.Writer.TryWrite(Log(2)); // the next batch is not held up
 
         await _repository.WaitForAsync(1);
@@ -92,21 +91,21 @@ public sealed class ApiLogBackgroundServiceTests
 
         // Enqueue the way ApiLogFilter does: reserve the memory budget first.
         var log = Log(1);
-        Assert.True(_stats.TryReserve(log.ApproximateBytes, long.MaxValue));
+        Assert.True(_budget.TryReserve(log.ApproximateBytes));
         _channel.Writer.TryWrite(log);
 
-        await WaitUntil(() => _stats.Failed == 1);
+        await WaitUntil(() => _repository.Attempts == 3);
         await service.StopAsync(default);
         Assert.Equal(3, _repository.Attempts); // 1 try + 2 retries
-        Assert.Equal(0, _stats.Inserted);
-        Assert.Equal(0, _stats.QueuedBytes);   // memory released even though the batch was dropped
+        Assert.Empty(_repository.Logs);
+        Assert.Equal(0, _budget.UsedBytes);    // memory released even though the batch was dropped
     }
 
     [Fact]
     public async Task Parallel_writers_insert_every_log_exactly_once()
     {
         var channel = Channel.CreateBounded<ApiLog>(10_000);
-        var service = new ApiLogBackgroundService(channel.Reader, _repository, _stats,
+        var service = new ApiLogBackgroundService(channel.Reader, _repository, _budget,
             Options.Create(new ApiLogOptions { BatchSize = 7, FlushInterval = TimeSpan.FromMilliseconds(20), WriterCount = 4 }),
             NullLogger<ApiLogBackgroundService>.Instance);
         await service.StartAsync(default);
@@ -117,7 +116,6 @@ public sealed class ApiLogBackgroundServiceTests
         Assert.Equal(5_000, _repository.Logs.Select(l => l.Path).Distinct().Count());
         Assert.Equal(5_000, _repository.Logs.Count);
         Assert.All(_repository.Batches, b => Assert.InRange(b.Length, 1, 7));
-        Assert.Equal(0, _stats.InFlight);
     }
 
     private static async Task WaitUntil(Func<bool> condition)

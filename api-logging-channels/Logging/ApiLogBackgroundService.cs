@@ -14,7 +14,7 @@ namespace ApiLogging.Api.Logging;
 public sealed class ApiLogBackgroundService(
     ChannelReader<ApiLog> reader,
     IApiLogRepository repository,
-    ApiLogStats stats,
+    ApiLogMemoryBudget budget,
     IOptions<ApiLogOptions> options,
     ILogger<ApiLogBackgroundService> logger) : BackgroundService
 {
@@ -80,7 +80,6 @@ public sealed class ApiLogBackgroundService(
     {
         if (batch.Count == 0) return;
 
-        stats.AddInFlight(batch.Count);
         try
         {
             for (var attempt = 1; ; attempt++)
@@ -89,7 +88,6 @@ public sealed class ApiLogBackgroundService(
                 {
                     // Not tied to stoppingToken, so a batch in progress at shutdown still completes.
                     await repository.InsertBatchAsync(batch, CancellationToken.None);
-                    stats.OnBatchInserted(batch.Count);
                     return;
                 }
                 catch (Exception ex) when (attempt <= _options.MaxRetries && repository.IsTransient(ex))
@@ -102,7 +100,6 @@ public sealed class ApiLogBackgroundService(
                 }
                 catch (Exception ex)
                 {
-                    stats.OnBatchFailed(batch.Count);
                     logger.LogError(ex, "Dropping {Count} API logs after {Attempts} attempt(s)", batch.Count, attempt);
                     return;
                 }
@@ -112,8 +109,7 @@ public sealed class ApiLogBackgroundService(
         {
             long bytes = 0;
             foreach (var log in batch) bytes += log.ApproximateBytes;
-            stats.Release(bytes);
-            stats.AddInFlight(-batch.Count);
+            budget.Release(bytes);
             batch.Clear(); // keeps the list's capacity: no new allocation per batch
         }
     }

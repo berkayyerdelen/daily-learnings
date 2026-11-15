@@ -11,14 +11,13 @@
 //       --connection "Server=localhost,1434;Database=api_logging;User Id=sa;Password=...;TrustServerCertificate=True"
 //   (omit --connection to measure the pipeline alone, with a no-op repository)
 //
-// Sends POST /api/orders (or --path) from N concurrent clients for the given duration. Every second it
-// prints requests/s, errors and the logging queue stats from GET /api-logs/stats. At the end it
-// prints latency percentiles and waits for the queue to drain to show the final DB counts.
+// Sends POST /api/orders (or --path) from N concurrent clients for the given duration, prints
+// requests/s and errors every second, and latency percentiles at the end. Dropped logs show up as a
+// warning in the API's console; the row count in dbo.ApiLogs shows what was written.
 
 using System.Diagnostics;
-using ApiLogging.LoadTests;
-using System.Net.Http.Json;
 using System.Text;
+using ApiLogging.LoadTests;
 
 if (Arg("--mode", "http") == "db")
     return await DbLoadTest.RunAsync(Arg);
@@ -47,13 +46,15 @@ var payload = Encoding.UTF8.GetBytes(body);
 
 Console.WriteLine($"Target {url}{path}  concurrency {concurrency}  duration {duration.TotalSeconds}s  body {payload.Length} bytes  " +
                   (rps > 0 ? $"rate {rps:N0} req/s" : "rate: max"));
-var before = await GetStats();
-if (before is null)
+try
 {
-    Console.Error.WriteLine($"Cannot reach {url}/api-logs/stats. Is the API running?");
+    using var probe = await http.GetAsync("/");
+}
+catch (HttpRequestException)
+{
+    Console.Error.WriteLine($"Cannot reach {url}. Is the API running?");
     return 1;
 }
-Print("stats before", before);
 
 using var cts = new CancellationTokenSource(duration);
 var latencies = new List<double>[concurrency];
@@ -102,14 +103,12 @@ var workers = Enumerable.Range(0, concurrency).Select(i => Task.Run(async () =>
 var started = Stopwatch.StartNew();
 long lastOk = 0;
 Console.WriteLine();
-Console.WriteLine($"{"sec",4} {"req/s",8} {"errors",7} | {"queued",8} {"enqueued",10} {"dropped",9} {"inserted",10} {"failed",8} {"batches",8}");
+Console.WriteLine($"{"sec",4} {"req/s",8} {"errors",7}");
 while (!cts.IsCancellationRequested)
 {
     try { await Task.Delay(1000, cts.Token); } catch (OperationCanceledException) { break; }
     var current = Interlocked.Read(ref ok);
-    var s = await GetStats();
-    Console.WriteLine($"{(int)started.Elapsed.TotalSeconds,4} {current - lastOk,8} {Interlocked.Read(ref errors),7} | " +
-                      $"{s?.Queued,8} {s?.Enqueued,10} {s?.Dropped,9} {s?.Inserted,10} {s?.Failed,8} {s?.Batches,8}");
+    Console.WriteLine($"{(int)started.Elapsed.TotalSeconds,4} {current - lastOk,8} {Interlocked.Read(ref errors),7}");
     lastOk = current;
 }
 
@@ -122,44 +121,12 @@ Console.WriteLine($"Requests: {ok:N0} ok, {errors:N0} errors in {elapsed:F1}s  =
 if (all.Length > 0)
     Console.WriteLine($"Latency ms: p50 {P(0.50):F2}  p95 {P(0.95):F2}  p99 {P(0.99):F2}  max {all[^1]:F2}");
 
-// Let the background service drain, then show where every log ended up.
-Console.WriteLine();
-Console.WriteLine("Waiting for the queue to drain...");
-var drainUntil = Stopwatch.StartNew();
-StatsDto? after;
-do
-{
-    await Task.Delay(500);
-    after = await GetStats();
-    // QueuedBytes is released only after a batch is inserted (or fails), so 0 means every log
-    // has reached the database, including the last partial batch still waiting for FlushInterval.
-} while (after is { QueuedBytes: > 0 } && drainUntil.Elapsed < TimeSpan.FromSeconds(60));
-
-Print("stats after", after);
-if (before is not null && after is not null)
-{
-    Console.WriteLine($"This run: enqueued {after.Enqueued - before.Enqueued:N0}, dropped {after.Dropped - before.Dropped:N0}, " +
-                      $"inserted {after.Inserted - before.Inserted:N0}, failed {after.Failed - before.Failed:N0}");
-}
 return 0;
 
 double P(double q) => all[Math.Min(all.Length - 1, (int)(q * all.Length))];
-
-async Task<StatsDto?> GetStats()
-{
-    try { return await http.GetFromJsonAsync<StatsDto>("/api-logs/stats"); }
-    catch { return null; }
-}
-
-static void Print(string title, StatsDto? s) => Console.WriteLine(s is null
-    ? $"{title}: unavailable"
-    : $"{title}: queued {s.Queued:N0}/{s.Capacity:N0}, enqueued {s.Enqueued:N0}, dropped {s.Dropped:N0}, " +
-      $"inserted {s.Inserted:N0}, failed {s.Failed:N0}, batches {s.Batches:N0}");
 
 string Arg(string name, string fallback)
 {
     var i = Array.IndexOf(args, name);
     return i >= 0 && i + 1 < args.Length ? args[i + 1] : fallback;
 }
-
-record StatsDto(long Queued, int Capacity, long QueuedBytes, long Enqueued, long Dropped, long Inserted, long Failed, long Batches);

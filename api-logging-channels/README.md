@@ -8,7 +8,8 @@ ApiLogFilter ──TryWrite──▶ bounded Channel<ApiLog> ──▶ ApiLogBac
 ```
 
 - **`ApiLogFilter`**: global action filter. Builds an `ApiLog` and calls `TryWrite`, which never blocks.
-  If the channel is full (database slow or down), the log is dropped so the API isn't slowed down.
+  If the channel is full (database slow or down), the log is dropped so the API isn't slowed down, and a
+  warning with the number of dropped logs is written at most once every 10 seconds.
   Bodies are stored in full (no truncation).
   `[SkipApiLog]` excludes an endpoint.
 - **`ApiLogBackgroundService`**: reads the channel and inserts a batch when `BatchSize` logs are collected
@@ -71,17 +72,6 @@ request by trace id, a full row by id, slowest requests, and error rate per minu
 - **Logs contain full request/response bodies,** which can include personal data or secrets. Restrict who
   can query this table.
 
-## Queue stats: `GET /api-logs/stats`
-
-```json
-{ "queued": 12, "capacity": 10000, "queuedBytes": 31560, "maxQueueBytes": 268435456,
-  "enqueued": 1000271, "dropped": 0, "inserted": 1000259, "failed": 0, "batches": 1002,
-  "gen2SizeAfterGcBytes": 3012345, "gcHeapBytes": 412000000, "workingSetBytes": 812000000, ... }
-```
-
-`queued` is how many logs are in memory right now. `dropped` > 0 means the database could not keep up
-(or the memory budget was hit). To watch for leaks, use `gen2SizeAfterGcBytes`: it must level off, not climb.
-
 ## Load test
 
 ```bash
@@ -97,8 +87,9 @@ requests outpace SQL Server's insert rate. That's by design: a log is dropped ra
 Use `--rps N --concurrency 128` to test at your expected traffic, where the target is 0 drops. To find
 SQL Server's insert ceiling, run `--mode db --rps N` at increasing N; the highest N with 0 drops is it.
 
-It prints req/s, errors and the queue stats every second, then latency percentiles, and waits for the queue
-to drain. `--path /api/auth/login` hits an endpoint with `[SkipApiLog]`, as a no-logging baseline.
+It prints req/s and errors every second, then latency percentiles. Dropped logs appear as a warning in the
+API's console (at most one every 10 seconds, with the count); `SELECT COUNT(*) FROM dbo.ApiLogs` shows what
+was written. `--path /api/auth/login` hits an endpoint with `[SkipApiLog]`, as a no-logging baseline.
 
 **Results on a 4-core container** (load generator on the same machine, SQL Server unreachable, so every
 batch insert failed: the database-down worst case):
@@ -148,8 +139,8 @@ the same either way: they're dominated by the request/response text that is stor
   results and the final status code. Files and `IAsyncEnumerable` streams are not copied, so they're never
   buffered in memory just for a log.
 - Per-request lookups that never change (body parameter per action, `IAsyncEnumerable` check per type) are
-  cached. `[SkipApiLog]` is checked through ASP.NET Core's cached endpoint metadata. The filter updates one
-  shared counter per request (the memory budget); `enqueued` is derived.
+  cached. `[ApiLog]` / `[SkipApiLog]` are checked through ASP.NET Core's cached endpoint metadata. The only
+  shared state the filter updates per request is the memory budget.
 - **Retries only for temporary errors:** timeouts, lost connections, deadlock victim (1205), lock timeout,
   and Azure SQL failover/throttling codes. Permanent errors (schema, permissions, a missing database) are
   not retried, so they don't hold up newer batches. Each batch is one transaction, so a retry after a

@@ -113,19 +113,18 @@ public sealed class ApiLogFilterTests : IDisposable
     public async Task Drops_logs_over_the_memory_budget_and_releases_it_after_insert()
     {
         using var sut = new ApiLogFilterTests(maxQueueBytes: 300_000);
-        var stats = sut._factory.Services.GetRequiredService<ApiLogStats>();
+        var budget = sut._factory.Services.GetRequiredService<ApiLogMemoryBudget>();
 
         await sut._client.GetAsync("/test/big?size=100000"); // ~200 KB: fits
         await sut._repository.WaitForAsync(1);
-        Assert.Equal(0, stats.QueuedBytes); // released after the batch was inserted
+        Assert.Equal(0, budget.UsedBytes); // released after the batch was inserted
 
         // Two at once while nothing is flushed yet would exceed the budget...
         await Task.WhenAll(sut._client.GetAsync("/test/big?size=100000"), sut._client.GetAsync("/test/big?size=100000"));
         await sut._repository.WaitForAsync(2);
         await Task.Delay(150);
-        Assert.Equal(0, stats.QueuedBytes);
-        Assert.Equal(stats.Inserted, sut._repository.Logs.Count);
-        Assert.Equal(3, stats.Inserted + stats.Dropped);
+        Assert.Equal(0, budget.UsedBytes);
+        Assert.InRange(sut._repository.Logs.Count, 2, 3); // at least one of the two concurrent ones fits
     }
 
     [Fact]

@@ -98,12 +98,12 @@ public class FilterBenchmarks
 
         // Stand-in for ApiLogBackgroundService: keep the channel empty and release the memory budget.
         var reader = _services.GetRequiredService<ChannelReader<ApiLog>>();
-        var stats = _services.GetRequiredService<ApiLogStats>();
+        var budget = _services.GetRequiredService<ApiLogMemoryBudget>();
         _drain = Task.Run(async () =>
         {
             while (await reader.WaitToReadAsync())
                 while (reader.TryRead(out var log))
-                    stats.Release(log.ApproximateBytes);
+                    budget.Release(log.ApproximateBytes);
         });
     }
 

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.Extensions.Options;
 
 namespace ApiLogging.Api.Logging;
 
@@ -77,44 +78,27 @@ public sealed class ApiLogOptions
     public TimeSpan RetryBaseDelay { get; set; } = TimeSpan.FromMilliseconds(200);
 }
 
-/// <summary>Counters for the logging pipeline, exposed at GET /api-logs/stats.</summary>
-public sealed class ApiLogStats
+/// <summary>
+/// Caps the memory held by queued and in-flight logs (bodies are not truncated, so a count limit
+/// alone does not bound memory). Memory is reserved when a log is queued and released only after
+/// its batch is written or given up on, so the budget also covers batches being inserted.
+/// </summary>
+public sealed class ApiLogMemoryBudget(IOptions<ApiLogOptions> options)
 {
-    // No "enqueued" counter: it would be a second contended atomic write on every request.
-    // Enqueued = inserted + failed + queued + in flight (see MapApiLogStats).
-    private long _dropped, _inserted, _failed, _batches, _queuedBytes;
-    private int _inFlight;
+    private readonly long _maxBytes = options.Value.MaxQueueBytes;
+    private long _usedBytes;
 
-    /// <summary>Logs in batches currently being inserted (all writers).</summary>
-    public int InFlight => Volatile.Read(ref _inFlight);
-    public long Dropped => Interlocked.Read(ref _dropped);
-    public long Inserted => Interlocked.Read(ref _inserted);
-    public long Failed => Interlocked.Read(ref _failed);
-    public long Batches => Interlocked.Read(ref _batches);
-    public long QueuedBytes => Interlocked.Read(ref _queuedBytes);
+    public long UsedBytes => Interlocked.Read(ref _usedBytes);
 
     /// <summary>Reserves memory for a log; false (nothing reserved) if it would exceed the budget.</summary>
-    public bool TryReserve(long bytes, long maxBytes)
+    public bool TryReserve(long bytes)
     {
-        if (Interlocked.Add(ref _queuedBytes, bytes) <= maxBytes) return true;
-        Interlocked.Add(ref _queuedBytes, -bytes);
+        if (Interlocked.Add(ref _usedBytes, bytes) <= _maxBytes) return true;
+        Interlocked.Add(ref _usedBytes, -bytes);
         return false;
     }
 
-    /// <summary>Releases memory once logs are written (or given up on), not when dequeued,
-    /// so the budget also covers the batch being inserted.</summary>
-    public void Release(long bytes) => Interlocked.Add(ref _queuedBytes, -bytes);
-
-    public void AddInFlight(int delta) => Interlocked.Add(ref _inFlight, delta);
-    public void OnDropped() => Interlocked.Increment(ref _dropped);
-
-    public void OnBatchInserted(int count)
-    {
-        Interlocked.Add(ref _inserted, count);
-        Interlocked.Increment(ref _batches);
-    }
-
-    public void OnBatchFailed(int count) => Interlocked.Add(ref _failed, count);
+    public void Release(long bytes) => Interlocked.Add(ref _usedBytes, -bytes);
 }
 
 /// <summary>

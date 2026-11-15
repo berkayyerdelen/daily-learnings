@@ -28,7 +28,7 @@ internal static class DbLoadTest
             FlushInterval = TimeSpan.FromSeconds(1)
         };
 
-        IApiLogRepository repository = connection.Length == 0 ? new NoOpRepository() : new SqlApiLogRepository(connection);
+        var repository = new CountingRepository(connection.Length == 0 ? new NoOpRepository() : new SqlApiLogRepository(connection));
         Console.WriteLine($"db mode: target {rate:N0} logs/s for {duration.TotalSeconds}s, body {bodySize} chars, " +
                           $"batch {options.BatchSize:N0}, writers {options.WriterCount}, capacity {options.Capacity:N0}, " +
                           (connection.Length == 0 ? "NO database (pipeline only)" : "SQL Server"));
@@ -39,9 +39,11 @@ internal static class DbLoadTest
             SingleReader = options.WriterCount <= 1,
             SingleWriter = true
         });
-        var stats = new ApiLogStats();
+        var wrappedOptions = Options.Create(options);
+        var budget = new ApiLogMemoryBudget(wrappedOptions);
+        long dropped = 0;
         using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole().SetMinimumLevel(LogLevel.Warning));
-        var service = new ApiLogBackgroundService(channel.Reader, repository, stats, Options.Create(options),
+        var service = new ApiLogBackgroundService(channel.Reader, repository, budget, wrappedOptions,
             loggerFactory.CreateLogger<ApiLogBackgroundService>());
         await service.StartAsync(CancellationToken.None);
 
@@ -62,27 +64,27 @@ internal static class DbLoadTest
                         201, 2, request, response, null);
 
                     // Same admission rules as ApiLogFilter: byte budget, then non-blocking TryWrite.
-                    if (stats.TryReserve(log.ApproximateBytes, options.MaxQueueBytes))
+                    if (budget.TryReserve(log.ApproximateBytes))
                     {
                         if (channel.Writer.TryWrite(log)) continue;
-                        stats.Release(log.ApproximateBytes);
+                        budget.Release(log.ApproximateBytes);
                     }
-                    stats.OnDropped();
+                    dropped++;
                 }
                 await Task.Delay(10);
             }
         });
 
         Console.WriteLine();
-        Console.WriteLine($"{"sec",4} {"produced/s",11} {"inserted/s",11} | {"queued",8} {"dropped",9} {"failed",8} {"inserted",11}");
+        Console.WriteLine($"{"sec",4} {"produced/s",11} {"inserted/s",11} | {"queued",8} {"dropped",9} {"inserted",11}");
         long lastProduced = 0, lastInserted = 0;
         while (!producer.IsCompleted)
         {
             await Task.WhenAny(producer, Task.Delay(1000));
             var p = Interlocked.Read(ref produced);
-            var i = stats.Inserted;
+            var i = repository.Inserted;
             Console.WriteLine($"{(int)clock.Elapsed.TotalSeconds,4} {p - lastProduced,11:N0} {i - lastInserted,11:N0} | " +
-                              $"{channel.Reader.Count,8:N0} {stats.Dropped,9:N0} {stats.Failed,8:N0} {i,11:N0}");
+                              $"{channel.Reader.Count,8:N0} {Interlocked.Read(ref dropped),9:N0} {i,11:N0}");
             lastProduced = p;
             lastInserted = i;
         }
@@ -92,13 +94,30 @@ internal static class DbLoadTest
         var total = clock.Elapsed.TotalSeconds;
 
         Console.WriteLine();
-        Console.WriteLine($"Produced {produced:N0}  enqueued {stats.Inserted + stats.Failed:N0}  dropped {stats.Dropped:N0} " +
-                          $"({100.0 * stats.Dropped / Math.Max(1, produced):F1}%)  inserted {stats.Inserted:N0}  failed {stats.Failed:N0}");
-        Console.WriteLine($"Sustained insert rate: {stats.Inserted / total:N0} rows/s over {total:F1}s (including drain)");
-        Console.WriteLine(stats.Dropped == 0
+        var inserted = repository.Inserted;
+        var failed = produced - dropped - inserted; // queued but not written (insert failed)
+        Console.WriteLine($"Produced {produced:N0}  dropped {dropped:N0} ({100.0 * dropped / Math.Max(1, produced):F1}%)  " +
+                          $"inserted {inserted:N0}  failed {failed:N0}");
+        Console.WriteLine($"Sustained insert rate: {inserted / total:N0} rows/s over {total:F1}s (including drain)");
+        Console.WriteLine(dropped == 0 && failed == 0
             ? $"OK: the pipeline kept up with {rate:N0} logs/s."
             : "Dropped logs: the database did not keep up with this rate. Try a larger --batch-size, or see README.");
         return 0;
+    }
+
+    /// <summary>Counts rows that were actually inserted.</summary>
+    private sealed class CountingRepository(IApiLogRepository inner) : IApiLogRepository
+    {
+        private long _inserted;
+        public long Inserted => Interlocked.Read(ref _inserted);
+
+        public async Task InsertBatchAsync(IReadOnlyList<ApiLog> logs, CancellationToken cancellationToken)
+        {
+            await inner.InsertBatchAsync(logs, cancellationToken);
+            Interlocked.Add(ref _inserted, logs.Count);
+        }
+
+        public bool IsTransient(Exception exception) => inner.IsTransient(exception);
     }
 
     private sealed class NoOpRepository : IApiLogRepository

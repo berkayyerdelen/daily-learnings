@@ -14,6 +14,8 @@ public sealed record OrderResponse(Guid Id, string CustomerId, decimal Amount, D
 
 public sealed record LoginRequest(string UserName, string Password);
 
+// [ApiLog] on the controller: every action below is logged.
+[ApiLog]
 [ApiController]
 [Route("api/orders")]
 public sealed class OrdersController : ControllerBase
@@ -34,11 +36,12 @@ public sealed class OrdersController : ControllerBase
     public IActionResult Boom() => throw new InvalidOperationException("Simulated failure");
 }
 
+[ApiLog]
 [ApiController]
 [Route("api/auth")]
 public sealed class AuthController : ControllerBase
 {
-    // Credentials must never reach the log table.
+    // Credentials must never reach the log table: [SkipApiLog] overrides the controller's [ApiLog].
     [SkipApiLog]
     [HttpPost("login")]
     public IActionResult Login(LoginRequest request) => Ok(new { token = "demo-token" });

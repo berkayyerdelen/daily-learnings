@@ -15,10 +15,11 @@ public sealed class ApiLogFilterTests : IDisposable
 
     public ApiLogFilterTests() : this(maxQueueBytes: null) { }
 
-    private ApiLogFilterTests(long? maxQueueBytes)
+    private ApiLogFilterTests(long? maxQueueBytes, bool logAllEndpoints = false)
     {
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
+            if (logAllEndpoints) b.UseSetting("ApiLogging:LogAllEndpoints", "true");
             if (maxQueueBytes is not null) b.UseSetting("ApiLogging:MaxQueueBytes", maxQueueBytes.ToString());
             b.UseSetting("ApiLogging:FlushInterval", "00:00:00.050");
             b.UseSetting("ApiLogging:FlushInterval", "00:00:00.050");
@@ -125,6 +126,32 @@ public sealed class ApiLogFilterTests : IDisposable
         Assert.Equal(0, stats.QueuedBytes);
         Assert.Equal(stats.Inserted, sut._repository.Logs.Count);
         Assert.Equal(3, stats.Inserted + stats.Dropped);
+    }
+
+    [Fact]
+    public async Task Only_endpoints_with_ApiLog_are_logged_and_SkipApiLog_overrides_the_controller()
+    {
+        await _client.GetAsync("/optin/plain");    // no attribute: not logged
+        await _client.GetAsync("/optin/logged");   // [ApiLog] on the action: logged
+        await _client.GetAsync("/optout/skipped"); // [SkipApiLog] beats the controller's [ApiLog]
+        await _client.GetAsync("/optout/logged");  // [ApiLog] on the controller: logged
+
+        await _repository.WaitForAsync(2);
+        await Task.Delay(150);
+        Assert.Equal(new[] { "/optin/logged", "/optout/logged" }, _repository.Logs.Select(l => l.Path).Order());
+    }
+
+    [Fact]
+    public async Task LogAllEndpoints_logs_endpoints_without_the_attribute_but_still_honours_SkipApiLog()
+    {
+        using var sut = new ApiLogFilterTests(maxQueueBytes: null, logAllEndpoints: true);
+
+        await sut._client.GetAsync("/optin/plain");
+        await sut._client.GetAsync("/optout/skipped");
+
+        await sut._repository.WaitForAsync(1);
+        await Task.Delay(150);
+        Assert.Equal("/optin/plain", Assert.Single(sut._repository.Logs).Path);
     }
 
     [Theory]

@@ -15,6 +15,33 @@ ApiLogFilter ──TryWrite──▶ bounded Channel<ApiLog> ──▶ ApiLogBac
   or `FlushInterval` passes, whichever comes first. Writes what's left on shutdown.
 - **`SqlApiLogRepository`**: ADO.NET `SqlBulkCopy`, one round trip per batch.
 
+## Choosing which endpoints are logged
+
+```csharp
+[ApiLog]                       // every action in this controller is logged
+public class OrdersController : ControllerBase
+{
+    public IActionResult Create(...) { ... }          // logged
+
+    [SkipApiLog]                                     // overrides the controller
+    public IActionResult Login(...) { ... }          // never logged
+}
+
+public class HealthController : ControllerBase
+{
+    public IActionResult Ping() { ... }              // not logged: no attribute
+
+    [ApiLog]
+    public IActionResult Deep() { ... }              // logged: opted in on the action
+}
+```
+
+- Only endpoints with `[ApiLog]` (on the action or its controller) are logged.
+- The most specific attribute wins: an action's `[SkipApiLog]` beats its controller's `[ApiLog]`, and the other way round.
+- `"ApiLogging": { "LogAllEndpoints": true }` logs every controller endpoint without an attribute; `[SkipApiLog]` still
+  excludes endpoints.
+- Endpoints that aren't logged cost almost nothing: one cached metadata lookup, no allocation.
+
 ## Run
 
 ```bash
@@ -146,6 +173,7 @@ the same either way: they're dominated by the request/response text that is stor
 
 | Key | Default | |
 |---|---|---|
+| `LogAllEndpoints` | `false` | `false`: only `[ApiLog]` endpoints. `true`: all, except `[SkipApiLog]` |
 | `Capacity` | `10000` | Max logs held in memory |
 | `MaxQueueBytes` | `268435456` (256 MB) | Max memory for queued and in-flight logs |
 | `WriterCount` | `1` | Parallel writer loops, each with its own connection (1–16) |

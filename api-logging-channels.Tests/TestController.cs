@@ -1,3 +1,4 @@
+using ApiLogging.Api.Logging;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ApiLogging.Tests;
@@ -9,6 +10,7 @@ public sealed class Node
 }
 
 /// <summary>Test-only endpoints for edge cases the demo controller does not have.</summary>
+[ApiLog]
 [ApiController]
 [Route("test")]
 public sealed class TestController : ControllerBase
@@ -46,4 +48,31 @@ public sealed class TestController : ControllerBase
 
     [HttpGet("big")]
     public IActionResult Big([FromQuery] int size) => Ok(new string('x', size));
+}
+
+/// <summary>No [ApiLog] on the controller: only the action that opts in is logged.</summary>
+[ApiController]
+[Route("optin")]
+public sealed class OptInController : ControllerBase
+{
+    [HttpGet("plain")]
+    public IActionResult Plain() => Ok("not logged unless LogAllEndpoints");
+
+    [ApiLog]
+    [HttpGet("logged")]
+    public IActionResult Logged() => Ok("logged");
+}
+
+/// <summary>[ApiLog] on the controller, with one action opting out.</summary>
+[ApiLog]
+[ApiController]
+[Route("optout")]
+public sealed class OptOutController : ControllerBase
+{
+    [HttpGet("logged")]
+    public IActionResult Logged() => Ok("logged");
+
+    [SkipApiLog]
+    [HttpGet("skipped")]
+    public IActionResult Skipped() => Ok("never logged");
 }

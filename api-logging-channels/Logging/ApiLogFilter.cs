@@ -40,10 +40,11 @@ public sealed class ApiLogFilter(
     private static readonly ConcurrentDictionary<string, string?> BodyParameterNames = new();
 
     private readonly long _maxQueueBytes = options.Value.MaxQueueBytes;
+    private readonly bool _logAllEndpoints = options.Value.LogAllEndpoints;
 
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
-        if (IsSkipped(context.HttpContext))
+        if (!ShouldLog(context.HttpContext))
         {
             await next();
             return;
@@ -130,9 +131,11 @@ public sealed class ApiLogFilter(
         }
     }
 
-    // Endpoint metadata lookups by type are cached by ASP.NET Core and do not allocate.
-    private static bool IsSkipped(HttpContext http) =>
-        http.GetEndpoint()?.Metadata.GetMetadata<SkipApiLogAttribute>() is not null;
+    // [ApiLog] / [SkipApiLog]: the most specific one wins (action over controller). With neither,
+    // LogAllEndpoints decides. Endpoint metadata lookups by type are cached and do not allocate,
+    // so endpoints that are not logged cost almost nothing.
+    private bool ShouldLog(HttpContext http) =>
+        http.GetEndpoint()?.Metadata.GetMetadata<IApiLogMetadata>()?.Enabled ?? _logAllEndpoints;
 
     private string? SerializeRequestBody(ActionExecutingContext context)
     {

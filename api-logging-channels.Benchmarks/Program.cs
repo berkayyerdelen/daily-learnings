@@ -68,6 +68,7 @@ public class FilterBenchmarks
         // Typical controller action metadata (what [ApiController] + routing attributes produce).
         var metadata = new List<object>
         {
+            new ApiLogAttribute(), // opt in, as a logged endpoint would
             new ApiControllerAttribute(), new RouteAttribute("api/orders"), new HttpPostAttribute(),
             new ProducesAttribute("application/json"), new ConsumesAttribute("application/json")
         };

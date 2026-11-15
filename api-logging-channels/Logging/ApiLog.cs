@@ -25,6 +25,12 @@ public sealed record ApiLog(
 
 public sealed class ApiLogOptions
 {
+    /// <summary>
+    /// false (default): only endpoints with [ApiLog] are logged.
+    /// true: every controller endpoint is logged, except those with [SkipApiLog].
+    /// </summary>
+    public bool LogAllEndpoints { get; set; }
+
     /// <summary>Max logs held in memory. When full, new logs are dropped instead of slowing requests.</summary>
     [Range(1, 1_000_000)]
     public int Capacity { get; set; } = 10_000;
@@ -111,6 +117,31 @@ public sealed class ApiLogStats
     public void OnBatchFailed(int count) => Interlocked.Add(ref _failed, count);
 }
 
-/// <summary>Excludes a controller or action from API logging (e.g. login).</summary>
+/// <summary>
+/// Shared by <see cref="ApiLogAttribute"/> and <see cref="SkipApiLogAttribute"/>. Endpoint metadata
+/// returns the most specific one (action over controller), so an action can override its controller.
+/// </summary>
+public interface IApiLogMetadata
+{
+    bool Enabled { get; }
+}
+
+/// <summary>
+/// Logs this controller's actions, or this action, to the ApiLogs table.
+/// Only endpoints with this attribute are logged, unless ApiLogging:LogAllEndpoints is true.
+/// </summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
-public sealed class SkipApiLogAttribute : Attribute;
+public sealed class ApiLogAttribute : Attribute, IApiLogMetadata
+{
+    public bool Enabled => true;
+}
+
+/// <summary>
+/// Excludes a controller or action from API logging, e.g. login inside a logged controller.
+/// Wins over [ApiLog] on the controller, and over LogAllEndpoints.
+/// </summary>
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
+public sealed class SkipApiLogAttribute : Attribute, IApiLogMetadata
+{
+    public bool Enabled => false;
+}

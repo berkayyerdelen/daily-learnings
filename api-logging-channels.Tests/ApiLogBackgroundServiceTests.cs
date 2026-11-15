@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using ApiLogging.Api.Logging;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -11,16 +12,19 @@ public sealed class ApiLogBackgroundServiceTests
     private readonly Channel<ApiLog> _channel = Channel.CreateBounded<ApiLog>(1_000);
     private readonly ApiLogMemoryBudget _budget = new(Options.Create(new ApiLogOptions()));
 
-    private ApiLogBackgroundService Create(int batchSize, TimeSpan flushInterval, int maxRetries = 3, int writers = 1) => new(
-        _channel.Reader, _repository, _budget,
+    private ApiLogBackgroundService Create(int batchSize, TimeSpan flushInterval, int maxRetries = 3, int writers = 1,
+        ChannelReader<ApiLog>? reader = null, TimeSpan? maxFailureCooldown = null, TimeSpan? shutdownTimeout = null) => new(
+        reader ?? _channel.Reader, _repository, _budget,
         Options.Create(new ApiLogOptions
         {
             BatchSize = batchSize,
             FlushInterval = flushInterval,
             MaxRetries = maxRetries,
             WriterCount = writers,
-            RetryBaseDelay = TimeSpan.FromMilliseconds(1) // keep tests fast
+            RetryBaseDelay = TimeSpan.FromMilliseconds(1), // keep tests fast
+            MaxFailureCooldown = maxFailureCooldown ?? TimeSpan.Zero
         }),
+        Options.Create(new HostOptions { ShutdownTimeout = shutdownTimeout ?? TimeSpan.FromSeconds(30) }),
         NullLogger<ApiLogBackgroundService>.Instance);
 
     [Fact]
@@ -107,6 +111,7 @@ public sealed class ApiLogBackgroundServiceTests
         var channel = Channel.CreateBounded<ApiLog>(10_000);
         var service = new ApiLogBackgroundService(channel.Reader, _repository, _budget,
             Options.Create(new ApiLogOptions { BatchSize = 7, FlushInterval = TimeSpan.FromMilliseconds(20), WriterCount = 4 }),
+            Options.Create(new HostOptions()),
             NullLogger<ApiLogBackgroundService>.Instance);
         await service.StartAsync(default);
 
@@ -116,6 +121,94 @@ public sealed class ApiLogBackgroundServiceTests
         Assert.Equal(5_000, _repository.Logs.Select(l => l.Path).Distinct().Count());
         Assert.Equal(5_000, _repository.Logs.Count);
         Assert.All(_repository.Batches, b => Assert.InRange(b.Length, 1, 7));
+    }
+
+    [Fact]
+    public async Task A_crashing_writer_restarts_instead_of_stopping_the_host_and_releases_its_memory()
+    {
+        // The reader throws on its 2nd WaitToReadAsync: the writer has already taken log 1 into its
+        // batch, so the crash happens mid-batch (a bug path, not a database error).
+        var reader = new ThrowingReader(_channel.Reader, throwOnCall: 2);
+        var service = Create(batchSize: 10, flushInterval: TimeSpan.FromSeconds(30), reader: reader);
+        await service.StartAsync(default);
+
+        var first = Log(1);
+        Assert.True(_budget.TryReserve(first.ApproximateBytes));
+        _channel.Writer.TryWrite(first);
+        await WaitUntil(() => reader.Calls >= 2);
+        await WaitUntil(() => _budget.UsedBytes == 0); // the crashed batch's memory was released
+
+        // The writer was restarted (after ~1 s) and keeps working.
+        _channel.Writer.TryWrite(Log(2));
+        await service.StopAsync(default);
+        Assert.Equal("/2", Assert.Single(_repository.Logs).Path);
+        Assert.False(service.ExecuteTask!.IsFaulted); // never surfaced to the host
+    }
+
+    [Fact]
+    public async Task Shutdown_with_a_hung_database_finishes_within_the_host_shutdown_timeout()
+    {
+        // Every insert hangs until cancelled, like a database that accepts connections but never answers.
+        var hung = new HangingRepository();
+        var service = new ApiLogBackgroundService(_channel.Reader, hung, _budget,
+            Options.Create(new ApiLogOptions { BatchSize = 10, FlushInterval = TimeSpan.FromMilliseconds(20) }),
+            Options.Create(new HostOptions { ShutdownTimeout = TimeSpan.FromSeconds(4) }), // drain deadline = 2 s
+            NullLogger<ApiLogBackgroundService>.Instance);
+        await service.StartAsync(default);
+        for (var i = 0; i < 25; i++) _channel.Writer.TryWrite(Log(i));
+        await WaitUntil(() => hung.Calls >= 1);
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        using var hostGivesUp = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+        await service.StopAsync(hostGivesUp.Token);
+        await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(1)); // writers really finished
+
+        Assert.InRange(clock.Elapsed, TimeSpan.Zero, TimeSpan.FromSeconds(4));
+    }
+
+    [Fact]
+    public async Task A_down_database_is_not_hammered_thanks_to_the_cooldown()
+    {
+        _repository.FailAttempt = _ => new InvalidOperationException("database down");
+        var service = Create(batchSize: 1, flushInterval: TimeSpan.FromMilliseconds(5), maxRetries: 0,
+            maxFailureCooldown: TimeSpan.FromSeconds(10));
+        await service.StartAsync(default);
+
+        // 200 one-log batches ready to go. Without a cooldown, that's ~200 attempts in a second.
+        for (var i = 0; i < 200; i++) _channel.Writer.TryWrite(Log(i));
+        await Task.Delay(1_000);
+
+        // base 1 ms doubling per failure: 1, 2, 4 ... 512 ms. Roughly 10 attempts fit in a second.
+        Assert.InRange(_repository.Attempts, 2, 15);
+        await service.StopAsync(default);
+    }
+
+    private sealed class ThrowingReader(ChannelReader<ApiLog> inner, int throwOnCall) : ChannelReader<ApiLog>
+    {
+        private int _calls;
+        public int Calls => Volatile.Read(ref _calls);
+        public override bool CanCount => true;
+        public override int Count => inner.Count;
+        public override bool TryRead(out ApiLog item) => inner.TryRead(out item!);
+
+        public override ValueTask<bool> WaitToReadAsync(CancellationToken cancellationToken = default) =>
+            Interlocked.Increment(ref _calls) == throwOnCall
+                ? throw new InvalidOperationException("simulated bug")
+                : inner.WaitToReadAsync(cancellationToken);
+    }
+
+    private sealed class HangingRepository : IApiLogRepository
+    {
+        private int _calls;
+        public int Calls => Volatile.Read(ref _calls);
+
+        public async Task InsertBatchAsync(IReadOnlyList<ApiLog> logs, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _calls);
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+        }
+
+        public bool IsTransient(Exception exception) => true; // would retry forever if allowed
     }
 
     private static async Task WaitUntil(Func<bool> condition)

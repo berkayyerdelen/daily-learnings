@@ -44,6 +44,7 @@ internal static class DbLoadTest
         long dropped = 0;
         using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole().SetMinimumLevel(LogLevel.Warning));
         var service = new ApiLogBackgroundService(channel.Reader, repository, budget, wrappedOptions,
+            Options.Create(new Microsoft.Extensions.Hosting.HostOptions()),
             loggerFactory.CreateLogger<ApiLogBackgroundService>());
         await service.StartAsync(CancellationToken.None);
 

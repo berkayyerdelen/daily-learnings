@@ -125,6 +125,16 @@ The filter copies the response bytes while MVC writes them, so the response obje
 once, not twice. The win grows with how expensive a response is to serialize. Allocations are about
 the same either way: they're dominated by the request/response text that is stored in full.
 
+## Failure handling (background writer)
+
+| Failure | What happens |
+|---|---|
+| Bug in a writer (unexpected exception) | Logged as critical, writer restarts after 1 s. Never reaches the host, so the API keeps running (a faulted `BackgroundService` would otherwise stop it). |
+| Temporary database error | Retried up to `MaxRetries` times with exponential backoff and jitter. |
+| Database down | After a batch is given up on, writers pause before the next one: the pause doubles per failed batch up to `MaxFailureCooldown`, and resets on the first success. SQL Server isn't hammered and the log isn't flooded. New logs are dropped meanwhile, with a warning. |
+| Shutdown or deploy | Writers drain the queue without retries. Every insert, including one already running, is cancelled at a deadline 2 s inside `HostOptions.ShutdownTimeout`, so a hung database can't block a deploy. Unwritten logs are reported with a count. |
+| Crashed writer holding a batch | Its memory budget is released, so the budget can't leak. |
+
 ## Memory and performance notes
 
 - **Memory is bounded twice:** by count (`Capacity`) and by bytes (`MaxQueueBytes`). Bodies are not
@@ -172,3 +182,4 @@ the same either way: they're dominated by the request/response text that is stor
 | `FlushInterval` | `00:00:02` | Max wait before inserting a partial batch |
 | `MaxRetries` | `3` | Extra attempts for a batch that failed with a temporary error |
 | `RetryBaseDelay` | `00:00:00.200` | First retry delay; doubles each attempt with random jitter, capped at 5 s |
+| `MaxFailureCooldown` | `00:00:30` | Longest pause between batches while the database keeps failing |

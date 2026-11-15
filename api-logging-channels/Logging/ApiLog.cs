@@ -76,6 +76,14 @@ public sealed class ApiLogOptions
     /// <summary>Backoff before the first retry; doubles each attempt (with jitter), capped at 5 s.</summary>
     [Range(typeof(TimeSpan), "00:00:00.001", "00:00:10")]
     public TimeSpan RetryBaseDelay { get; set; } = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>
+    /// After a batch is given up on, writers pause before the next one (RetryBaseDelay doubling per
+    /// failed batch, up to this), so a database that is down isn't hammered and the log isn't flooded.
+    /// Reset on the first successful insert.
+    /// </summary>
+    [Range(typeof(TimeSpan), "00:00:00", "00:05:00")]
+    public TimeSpan MaxFailureCooldown { get; set; } = TimeSpan.FromSeconds(30);
 }
 
 /// <summary>
